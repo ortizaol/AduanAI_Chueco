@@ -492,6 +492,18 @@ async function callLLM(description, path, history){
   result.history = updated;
 
   if(result.action === "decide"){
+    // Normalize the code: the model may return a slightly different format
+    // (e.g. "Sección XVII" instead of "XVII"). Find the exact child code.
+    const availableCodes = children.map(c => c.code);
+    if(!availableCodes.includes(result.code)){
+      const normalized = availableCodes.find(c =>
+        c.toLowerCase() === result.code.toLowerCase() ||
+        result.code.includes(c) ||
+        c.includes(result.code.replace(/[^a-zA-Z0-9.]/g, ""))
+      );
+      if(normalized) result.code = normalized;
+      else throw new Error(`Codigo inesperado: "${result.code}". Esperado uno de: ${availableCodes.join(", ")}`);
+    }
     const node = NODES[result.code] || {};
     result.node_description = node.description || "";
     result.is_leaf = !(node.children && node.children.length);
