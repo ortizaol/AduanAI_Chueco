@@ -30,6 +30,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 #key-banner label{font-weight:600;white-space:nowrap}
 #key-banner input{flex:1;padding:5px 10px;border:1px solid #ccc;
                   border-radius:6px;font-size:13px;font-family:monospace}
+#provider-sel{padding:5px 8px;border:1px solid #ccc;border-radius:6px;
+              font-size:13px;background:#fff;cursor:pointer}
 .btn-sm{padding:5px 12px;border:none;border-radius:6px;font-size:13px;
         font-weight:600;cursor:pointer;background:var(--green);color:#fff}
 .btn-sm:hover{background:var(--green2)}
@@ -172,7 +174,12 @@ textarea:disabled{background:#f8f8f8;color:var(--muted)}
 </div>
 
 <div id="key-banner">
-  <label for="api-key">Clave API Anthropic:</label>
+  <label>Proveedor:</label>
+  <select id="provider-sel" onchange="onProviderChange()">
+    <option value="anthropic">Anthropic (Claude)</option>
+    <option value="openai">OpenAI (GPT-4o)</option>
+  </select>
+  <label for="api-key">Clave API:</label>
   <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
   <button class="btn-sm" onclick="saveKey()">Guardar</button>
   <span id="key-ok">&#10003; Clave guardada</span>
@@ -308,17 +315,31 @@ Para indicar que la clasificacion tomo el camino equivocado y debe reiniciarse:
 - Haz solo UNA pregunta a la vez.`;
 
 /* ── API key ─────────────────────────────────────────────────────────────── */
-function getKey(){ return localStorage.getItem("anthropic_key") || ""; }
+function getProvider(){ return localStorage.getItem("provider") || "anthropic"; }
+function getKey(){ return localStorage.getItem(getProvider() + "_key") || ""; }
+
 function saveKey(){
   const k = document.getElementById("api-key").value.trim();
   if(!k) return;
-  localStorage.setItem("anthropic_key", k);
+  const p = getProvider();
+  localStorage.setItem(p + "_key", k);
   document.getElementById("api-key").value = "";
   const ok = document.getElementById("key-ok");
   ok.style.display = "inline";
   setTimeout(() => ok.style.display = "none", 2000);
 }
+
+function onProviderChange(){
+  const p = document.getElementById("provider-sel").value;
+  localStorage.setItem("provider", p);
+  document.getElementById("api-key").placeholder = p === "anthropic" ? "sk-ant-..." : "sk-...";
+  document.getElementById("key-ok").style.display = getKey() ? "inline" : "none";
+}
+
 window.addEventListener("load", () => {
+  const p = getProvider();
+  document.getElementById("provider-sel").value = p;
+  document.getElementById("api-key").placeholder = p === "anthropic" ? "sk-ant-..." : "sk-...";
   if(getKey()) document.getElementById("key-ok").style.display = "inline";
 });
 
@@ -372,22 +393,8 @@ function buildUserMsg(description, path, children, accNotes){
        + formatOptions(children);
 }
 
-/* ── Anthropic API call with prompt caching ──────────────────────────────── */
-async function callLLM(description, path, history){
-  const key = getKey();
-  if(!key) throw new Error("Ingresa tu clave API Anthropic en el campo superior.");
-
-  const children = getChildren(path[path.length-1]);
-  if(!children.length) return { action:"leaf", code:path[path.length-1], history };
-
-  const accNotes  = getAccNotes(path);
-  const userMsg   = buildUserMsg(description, path, children, accNotes);
-
-  // Cache strategy: mark indices 0, 1 (the most expensive first step) and
-  // history.length-1 (rolling checkpoint for the next step).
-  // Indices 0+1 are kept at the SAME position on every call so Anthropic
-  // reads them from cache instead of re-processing; only the last entry moves.
-  // Total breakpoints: sys(1) + up to 3 history = 4 (Anthropic's max).
+/* ── API calls ───────────────────────────────────────────────────────────── */
+async function callAnthropic(key, userMsg, history){
   const cacheSet = new Set(
     [0, 1, history.length - 1].filter(i => i >= 0 && i < history.length)
   );
@@ -410,26 +417,60 @@ async function callLLM(description, path, history){
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 600,
-      // System prompt is constant — cached after the first call.
       system: [{ type:"text", text:SYSTEM, cache_control:{ type:"ephemeral" } }],
       messages: apiMsgs,
     }),
   });
-
   if(!resp.ok){
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Error ${resp.status}`);
+    throw new Error(err.error?.message || `Error Anthropic ${resp.status}`);
   }
-
   const data = await resp.json();
-  // Log token usage so you can verify cache hits in DevTools console.
-  // cache_creation_input_tokens > 0 means a new cache was written this call.
-  // cache_read_input_tokens > 0 means tokens were served from cache (not re-billed).
-  console.log(`[step tokens] input=${data.usage?.input_tokens} `
-    + `cache_create=${data.usage?.cache_creation_input_tokens} `
-    + `cache_read=${data.usage?.cache_read_input_tokens} `
-    + `output=${data.usage?.output_tokens}`);
-  const raw  = data.content[0].text.trim();
+  console.log(`[Anthropic] input=${data.usage?.input_tokens} cache_create=${data.usage?.cache_creation_input_tokens} cache_read=${data.usage?.cache_read_input_tokens} output=${data.usage?.output_tokens}`);
+  return data.content[0].text.trim();
+}
+
+async function callOpenAI(key, userMsg, history){
+  const messages = [
+    { role:"system", content: SYSTEM },
+    ...history,
+    { role:"user", content: userMsg },
+  ];
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      max_tokens: 600,
+      messages,
+    }),
+  });
+  if(!resp.ok){
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Error OpenAI ${resp.status}`);
+  }
+  const data = await resp.json();
+  console.log(`[OpenAI] input=${data.usage?.prompt_tokens} output=${data.usage?.completion_tokens}`);
+  return data.choices[0].message.content.trim();
+}
+
+async function callLLM(description, path, history){
+  const key = getKey();
+  const provider = getProvider();
+  if(!key) throw new Error(`Ingresa tu clave API ${provider === "anthropic" ? "Anthropic" : "OpenAI"} en el campo superior.`);
+
+  const children = getChildren(path[path.length-1]);
+  if(!children.length) return { action:"leaf", code:path[path.length-1], history };
+
+  const accNotes = getAccNotes(path);
+  const userMsg  = buildUserMsg(description, path, children, accNotes);
+
+  const raw = provider === "openai"
+    ? await callOpenAI(key, userMsg, history)
+    : await callAnthropic(key, userMsg, history);
 
   // Store history as plain strings — cache_control is an API-call concern only.
   const updated = [
