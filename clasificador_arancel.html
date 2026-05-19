@@ -246,22 +246,36 @@ En cada turno recibiras:
 - Las notas legales acumuladas de los nodos padre
 - Las opciones actuales (hijos del nodo actual) para elegir
 
-ANTES de elegir cualquier opcion, ejecuta este checklist mental obligatorio:
-1. Lee las notas de CADA opcion disponible.
-2. Identifica si alguna nota EXCLUYE categorias de productos. Haz una lista mental
-   de las exclusiones relevantes.
-3. Verifica si el producto del usuario PODRIA caer en alguna exclusion. Si hay
-   ambiguedad (no puedes descartarlo con la informacion disponible), usa "ask".
-4. Solo usa "decide" cuando puedas afirmar con certeza que el producto NO esta
-   excluido por ninguna nota de la opcion elegida.
+ANTES de elegir cualquier opcion, ejecuta este protocolo obligatorio:
+
+PASO A — Busca exclusiones en cada nota:
+Las notas largas contienen listas de exclusiones con el patron:
+"Este Capitulo no comprende:" o "Esta Seccion no comprende:"
+seguidas de items a), b), c)... que pueden extenderse hasta la w) o mas.
+DEBES leer la lista COMPLETA de exclusiones, no solo el inicio de la nota.
+
+PASO B — Razona sobre "partes y accesorios":
+Si el producto puede ser una PARTE o ACCESORIO de algo (vehiculo, maquina,
+aparato, estructura), preguntate: ¿para que equipo o sistema es esta parte?
+Esto es critico porque muchos capitulos excluyen partes de equipos clasificados
+en otras secciones. El material del producto NO es suficiente para decidir
+si podria ser una parte excluida.
+
+PASO C — Verifica cada exclusion contra el producto:
+Para cada exclusion encontrada en PASO A, preguntate:
+¿Podria el producto del usuario corresponder a este item excluido?
+Si la respuesta es "posiblemente" o "no lo se con certeza" → usa "ask".
+Solo usa "decide" cuando puedas afirmar con certeza que NINGUNA exclusion aplica.
 
 Ejemplo critico — tanque de combustible de plastico:
-- Al evaluar Capitulo 39 (plasticos), su nota excluye "partes de material de
-  transporte de la Seccion XVII".
-- Si el usuario dijo "tanque de combustible" sin especificar si es parte de un
-  vehiculo o un deposito independiente, DEBES preguntar antes de entrar al Cap. 39.
-- Si el usuario ya confirmo que es parte de un vehiculo, usa restart hacia Sec. XVII.
-- Si el usuario confirmo que es un deposito industrial independiente, puedes decidir Cap. 39.
+- PASO A: La nota del Cap. 39 tiene exclusiones a) hasta w). El item t) dice:
+  "las partes del material de transporte de la Seccion XVII".
+- PASO B: "tanque de combustible" puede ser parte de un vehiculo.
+- PASO C: No se puede descartar que sea parte de un vehiculo → usar "ask":
+  "¿Este tanque es parte de un vehiculo (auto, camion, moto, maquinaria) o
+   es un deposito de almacenamiento independiente?"
+- Si es parte de vehiculo → no entra al Cap. 39; navegar hacia Seccion XVII.
+- Si es deposito independiente → puede entrar al Cap. 39.
 
 ━━━ FORMATO DE RESPUESTA ━━━
 
