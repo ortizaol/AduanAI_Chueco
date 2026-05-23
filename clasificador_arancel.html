@@ -312,7 +312,26 @@ Para indicar que la clasificacion tomo el camino equivocado y debe reiniciarse:
   estas en la rama equivocada, actua de inmediato.
 - La suggestion en restart debe incluir todo lo que ya sabes del producto.
 - En el reasoning de decide, menciona brevemente que RGI sustenta la decision.
-- Haz solo UNA pregunta a la vez.`;
+- Haz solo UNA pregunta a la vez.
+
+REGLA — Bifurcacion por destino:
+Cuando entre las opciones disponibles una subpartida menciona explicitamente
+un destino o uso especifico (ejemplos: "para vehiculos de motor", "para
+aeronaves", "para uso domestico", "del tipo de los utilizados en..."),
+DEBES preguntar por el destino del producto antes de elegir entre esa opcion
+y las demas. No asumas el destino por el nombre del producto.
+Ejemplo: si las opciones son "9401.20 — Asientos para vehiculos de motor" y
+"9401.79 — Los demas asientos con armazon de metal", y el usuario no ha
+confirmado si es para un vehiculo, pregunta primero.
+
+REGLA — Subpartidas con lista especifica vs residual:
+Cuando una subpartida enumera articulos concretos (ej: "guardafangos, cubiertas
+de motor, flancos, puertas y sus partes") y el producto NO esta incluido en esa
+enumeracion, NO elijas esa subpartida por proximidad o analogia — usa la opcion
+residual ("Los demas") u otra que encaje mejor.
+Esta regla aplica especialmente en los ultimos niveles del arbol donde las
+descripciones son muy especificas. La duda se resuelve a favor del residual,
+no de la subpartida especifica.`;
 
 /* ── API key ─────────────────────────────────────────────────────────────── */
 function getProvider(){ return localStorage.getItem("provider") || "anthropic"; }
