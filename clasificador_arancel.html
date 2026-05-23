@@ -343,6 +343,23 @@ window.addEventListener("load", () => {
   if(getKey()) document.getElementById("key-ok").style.display = "inline";
 });
 
+/* ── Parent lookup (built once at load) ─────────────────────────────────── */
+const PARENT = {};
+for(const [code, node] of Object.entries(NODES)){
+  for(const child of node.children || []) PARENT[child] = code;
+}
+
+function findAncestorIn(targetCode, availableCodes){
+  let current = targetCode;
+  const visited = new Set();
+  while(current && !visited.has(current)){
+    if(availableCodes.includes(current)) return current;
+    visited.add(current);
+    current = PARENT[current];
+  }
+  return null;
+}
+
 /* ── Data helpers ────────────────────────────────────────────────────────── */
 function getChildren(code){
   const node = NODES[code] || {};
@@ -385,12 +402,15 @@ function buildUserMsg(description, path, children, accNotes){
       + "\n\n";
   }
   const cur = NODES[path[path.length-1]] || {};
+  const codes = children.map(c => c.code).join(", ");
   return `Producto: ${description}\n\n`
        + `Ruta hasta aqui: ${pathParts.length ? pathParts.join(" -> ") : "inicio"}\n\n`
        + notesBlock
        + `Estas en: [${path[path.length-1]}] ${cur.description||""}\n\n`
        + `Elige entre estas ${children.length} opciones:\n`
-       + formatOptions(children);
+       + formatOptions(children)
+       + `\n\nCODIGOS VALIDOS PARA ESTE NIVEL: ${codes}`
+       + `\nUSA UNICAMENTE UNO DE ESOS CODIGOS EN "code". NO uses codigos de otros niveles.`;
 }
 
 /* ── API calls ───────────────────────────────────────────────────────────── */
@@ -496,13 +516,20 @@ async function callLLM(description, path, history){
     // (e.g. "Sección XVII" instead of "XVII"). Find the exact child code.
     const availableCodes = children.map(c => c.code);
     if(!availableCodes.includes(result.code)){
+      // 1. Try case-insensitive / substring match
       const normalized = availableCodes.find(c =>
         c.toLowerCase() === result.code.toLowerCase() ||
         result.code.includes(c) ||
         c.includes(result.code.replace(/[^a-zA-Z0-9.]/g, ""))
       );
-      if(normalized) result.code = normalized;
-      else throw new Error(`Codigo inesperado: "${result.code}". Esperado uno de: ${availableCodes.join(", ")}`);
+      if(normalized){
+        result.code = normalized;
+      } else {
+        // 2. Model jumped levels — find which available child is an ancestor
+        const ancestor = findAncestorIn(result.code, availableCodes);
+        if(ancestor) result.code = ancestor;
+        else throw new Error(`Codigo inesperado: "${result.code}". Esperado uno de: ${availableCodes.join(", ")}`);
+      }
     }
     const node = NODES[result.code] || {};
     result.node_description = node.description || "";
