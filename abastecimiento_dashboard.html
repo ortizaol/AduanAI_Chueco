@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Abastecimiento — Gerencia Cadena de Suministro</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0d0f1a; --surface:#141826; --surface2:#1c2133; --border:#252d45;
+  --red:#ef4444; --red-dim:#ef444418; --red-border:#ef444440;
+  --yellow:#f59e0b; --yellow-dim:#f59e0b18; --yellow-border:#f59e0b40;
+  --green:#10b981; --green-dim:#10b98118; --green-border:#10b98140;
+  --blue:#3b82f6; --blue-dim:#3b82f618; --blue-border:#3b82f640;
+  --purple:#8b5cf6; --purple-dim:#8b5cf618; --purple-border:#8b5cf640;
+  --text:#e2e8f0; --muted:#64748b; --muted2:#94a3b8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;font-size:14px}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--surface)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* HEADER */
+.hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:100}
+.hdr-left{display:flex;align-items:center;gap:12px}
+.hdr-logo{width:36px;height:36px;background:linear-gradient(135deg,#ef4444,#8b5cf6);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0}
+.hdr h1{font-size:1rem;font-weight:700}
+.hdr-sub{font-size:.75rem;color:var(--muted);margin-top:2px}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.file-badge{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:.75rem;color:var(--muted2)}
+.btn{padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:.8rem;font-weight:600;transition:opacity .2s}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{opacity:.8}
+
+/* UPLOAD */
+.upload-wrap{display:flex;align-items:center;justify-content:center;min-height:80vh;padding:24px}
+.upload-box{border:2px dashed var(--border);border-radius:20px;padding:60px 50px;text-align:center;background:var(--surface);max-width:540px;width:100%;position:relative;cursor:pointer;transition:all .3s}
+.upload-box:hover,.upload-box.drag{border-color:var(--blue);background:#141826}
+.upload-box input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.upload-icon{font-size:3.5rem;margin-bottom:20px}
+.upload-box h2{font-size:1.4rem;margin-bottom:8px}
+.upload-box p{color:var(--muted);font-size:.88rem;line-height:1.5}
+.upload-hint{margin-top:14px;font-size:.78rem;color:var(--blue)}
+.upload-tip{margin-top:20px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:left;font-size:.8rem;color:var(--muted2);line-height:1.6}
+.upload-tip strong{color:var(--text)}
+
+/* LOADING */
+.loading-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:20px}
+.spinner{width:44px;height:44px;border:3px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-wrap p{color:var(--muted2);font-size:.9rem}
+.progress-outer{width:300px;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.progress-inner{height:100%;background:var(--blue);border-radius:3px;transition:width .3s}
+
+/* LAYOUT */
+.main{padding:20px 24px}
+
+/* KPI ROW */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;cursor:pointer;transition:border-color .2s}
+.kpi:hover{border-color:var(--muted)}
+.kpi.active-kpi{border-color:var(--blue)}
+.kpi-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+.kpi-value{font-size:2rem;font-weight:800;line-height:1}
+.kpi-sub{font-size:.72rem;color:var(--muted);margin-top:5px}
+.kpi-bar{height:3px;border-radius:2px;margin-top:10px;background:var(--border)}
+.kpi-bar-fill{height:100%;border-radius:2px}
+.red{color:var(--red)} .yellow{color:var(--yellow)} .green{color:var(--green)} .blue{color:var(--blue)} .purple{color:var(--purple)}
+.bg-red{background:var(--red)} .bg-yellow{background:var(--yellow)} .bg-green{background:var(--green)} .bg-blue{background:var(--blue)} .bg-purple{background:var(--purple)}
+
+/* ALERT BANNER */
+.alert-banner{border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:.88rem;border:1px solid}
+.alert-banner.critical{background:var(--red-dim);border-color:var(--red-border);color:#fca5a5}
+.alert-banner.warn{background:var(--yellow-dim);border-color:var(--yellow-border);color:#fcd34d}
+.alert-banner.ok{background:var(--green-dim);border-color:var(--green-border);color:#6ee7b7}
+.alert-banner .aicon{font-size:1.4rem;flex-shrink:0}
+.alert-banner strong{color:#fff}
+
+/* TABS */
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;overflow-x:auto}
+.tab{padding:8px 16px;border-radius:7px;border:none;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--muted);background:transparent;white-space:nowrap;transition:all .2s}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+
+/* SECTION CARDS */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:16px;overflow:hidden}
+.card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.card-hdr h3{font-size:.9rem;font-weight:700}
+.card-body{padding:18px}
+
+/* GRID */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+.chart-box{height:260px;position:relative}
+
+/* TEAM CARDS */
+.team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.team-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px}
+.team-name{font-size:.95rem;font-weight:700;margin-bottom:4px}
+.team-total{font-size:.75rem;color:var(--muted);margin-bottom:14px}
+.team-stat{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:.82rem}
+.team-stat-label{color:var(--muted2)}
+.team-stat-val{font-weight:700}
+.team-progress{height:5px;background:var(--border);border-radius:3px;margin-bottom:12px;overflow:hidden}
+.team-progress-fill{height:100%;border-radius:3px}
+.team-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:700;margin-top:8px}
+.badge-red{background:var(--red-dim);color:var(--red);border:1px solid var(--red-border)}
+.badge-yellow{background:var(--yellow-dim);color:var(--yellow);border:1px solid var(--yellow-border)}
+.badge-green{background:var(--green-dim);color:var(--green);border:1px solid var(--green-border)}
+.badge-blue{background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-border)}
+.badge-purple{background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple-border)}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{background:var(--surface2);color:var(--muted);text-align:left;padding:9px 12px;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:var(--text)}
+td{padding:9px 12px;border-bottom:1px solid #141826;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+tr:hover td{background:var(--surface2)}
+tr:last-child td{border-bottom:none}
+
+/* TOOLBAR */
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.search{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 12px;color:var(--text);font-size:.82rem;outline:none;min-width:200px}
+.search:focus{border-color:var(--blue)}
+.sel{background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:7px 12px;color:var(--text);font-size:.82rem;outline:none;cursor:pointer}
+.sel:focus{border-color:var(--blue)}
+
+/* PAGINATION */
+.pgn{display:flex;gap:6px;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);flex-wrap:wrap}
+.pgn-info{font-size:.75rem;color:var(--muted)}
+.pgn-btns{display:flex;gap:4px}
+.pgn-btn{padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:.75rem}
+.pgn-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.pgn-btn:hover:not(.active){border-color:var(--muted)}
+
+/* STATUS DOT */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;flex-shrink:0}
+
+/* SEMANA PILL */
+.semana-pill{display:inline-block;padding:2px 9px;border-radius:12px;font-size:.72rem;font-weight:700}
+
+/* QUICK WIN */
+.quickwin{background:var(--green-dim);border:1px solid var(--green-border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.quickwin .qicon{font-size:1.5rem;flex-shrink:0}
+.quickwin-text{font-size:.85rem}
+.quickwin-text strong{color:#fff}
+
+.hidden{display:none!important}
+.empty-state{text-align:center;padding:40px;color:var(--muted)}
+.empty-state .ei{font-size:2.5rem;margin-bottom:12px}
+
+/* MINI BADGE */
+.mini{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:700;white-space:nowrap}
+.mini-red{background:var(--red-dim);color:var(--red)}
+.mini-yellow{background:var(--yellow-dim);color:var(--yellow)}
+.mini-green{background:var(--green-dim);color:var(--green)}
+.mini-blue{background:var(--blue-dim);color:var(--blue)}
+.mini-purple{background:var(--purple-dim);color:var(--purple)}
+.mini-gray{background:var(--surface2);color:var(--muted2)}
+
+/* STAT ROW */
+.stat-row{display:flex;gap:24px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--border)}
+.stat-row:last-child{border-bottom:none}
+.stat-item{min-width:80px}
+.stat-item .sv{font-size:1.4rem;font-weight:700}
+.stat-item .sl{font-size:.7rem;color:var(--muted);margin-top:2px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div class="hdr-logo">🚌</div>
+    <div>
+      <div class="hdr h1" style="font-size:1rem;font-weight:700">Control de Abastecimiento</div>
+      <div class="hdr-sub">Gerencia Cadena de Suministro — Fabricación de Autobuses</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <span class="file-badge hidden" id="fileBadge">Sin archivo</span>
+    <button class="btn btn-ghost hidden" id="btnReset" onclick="resetApp()">📂 Cambiar archivo</button>
+  </div>
+</header>
+
+<!-- UPLOAD -->
+<div id="uploadWrap" class="upload-wrap">
+  <div class="upload-box" id="dropZone">
+    <input type="file" id="fileInput" accept=".xlsx,.xls" />
+    <div class="upload-icon">📊</div>
+    <h2>Sube el archivo de abastecimiento</h2>
+    <p>Arrastra el archivo Excel aquí o haz clic para seleccionarlo</p>
+    <div class="upload-hint">El sistema detecta automáticamente la hoja <strong>Explosión</strong></div>
+    <div class="upload-tip">
+      <strong>Columnas que analiza automáticamente:</strong><br>
+      Cantidad Requerida · Cantidad Pendiente · Cant Pendiente - Inventario<br>
+      Estado cobertura · Estado abastecimiento · Semana en planta<br>
+      Comprador · Proveedor · LT · Línea de producción
+    </div>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loadingWrap" class="loading-wrap hidden">
+  <div class="spinner"></div>
+  <p id="loadingMsg">Leyendo archivo…</p>
+  <div class="progress-outer"><div class="progress-inner" id="progressBar" style="width:0%"></div></div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="hidden">
+  <div class="main">
+
+    <!-- ALERT BANNER -->
+    <div class="alert-banner critical" id="alertBanner">
+      <span class="aicon">🔴</span>
+      <div id="alertText">Cargando...</div>
+    </div>
+
+    <!-- KPI ROW -->
+    <div class="kpi-row">
+      <div class="kpi" onclick="filterByStatus('Afectación')">
+        <div class="kpi-label">🔴 Afectación real</div>
+        <div class="kpi-value red" id="kpiAfect">—</div>
+        <div class="kpi-sub" id="kpiAfectSub">ítems sin cobertura</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-red" id="kpiAfectBar" style="width:0%"></div></div>
+      </div>
+      <div class="kpi" onclick="filterByStatus('Fecha no cumplida')">
+        <div class="kpi-label">🟡 Fecha no cumplida</div>
+        <div class="kpi-value yellow" id="kpiFecha">—</div>
+        <div class="kpi-sub">proveedor incumplió</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-yellow" id="kpiFechaBar" style="width:0%"></div></div>
+      </div>
+      <div class="kpi" onclick="filterByStatus('SC en gestión')">
+        <div class="kpi-label">🟣 Sin pedir</div>
+        <div class="kpi-value purple" id="kpiSinPedir">—</div>
+        <div class="kpi-sub">requieren SC/OC</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-purple" id="kpiSinPedirBar" style="width:0%"></div></div>
+      </div>
+      <div class="kpi" onclick="filterByStatus('OC en gestión')">
+        <div class="kpi-label">🔵 OC en gestión</div>
+        <div class="kpi-value blue" id="kpiOC">—</div>
+        <div class="kpi-sub">pedidos en proceso</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-blue" id="kpiOCBar" style="width:0%"></div></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">🟢 OK</div>
+        <div class="kpi-value green" id="kpiOK">—</div>
+        <div class="kpi-sub">cubiertos</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-green" id="kpiOKBar" style="width:0%"></div></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">📦 Total ítems únicos</div>
+        <div class="kpi-value blue" id="kpiItems">—</div>
+        <div class="kpi-sub" id="kpiItemsSub">— EPs activas</div>
+        <div class="kpi-bar"><div class="kpi-bar-fill bg-blue" style="width:100%"></div></div>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('resumen')">📊 Resumen</button>
+      <button class="tab" onclick="showTab('equipo')">👥 Mi equipo</button>
+      <button class="tab" onclick="showTab('proveedores')">🚚 Proveedores</button>
+      <button class="tab" onclick="showTab('cronograma')">📅 Cronograma</button>
+      <button class="tab" onclick="showTab('afectaciones')">🚨 Afectaciones detalle</button>
+    </div>
+
+    <!-- TAB: RESUMEN -->
+    <div id="tab-resumen">
+      <!-- Quick Wins -->
+      <div id="quickWinsBox"></div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-hdr"><h3>Estado de abastecimiento</h3><span style="font-size:.75rem;color:var(--muted)" id="chartEstadoSub"></span></div>
+          <div class="card-body"><div class="chart-box"><canvas id="chartEstado"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-hdr"><h3>Afectaciones por línea de producción</h3></div>
+          <div class="card-body"><div class="chart-box"><canvas id="chartLinea"></canvas></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><h3>Distribución por meta mensual</h3></div>
+        <div class="card-body"><div class="chart-box" style="height:200px"><canvas id="chartMeta"></canvas></div></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-hdr"><h3>Top 5 proveedores — ítems afectando</h3></div>
+          <div class="card-body"><div class="chart-box"><canvas id="chartProvResumen"></canvas></div></div>
+        </div>
+        <div class="card">
+          <div class="card-hdr"><h3>Carga por comprador (ítems críticos)</h3></div>
+          <div class="card-body"><div class="chart-box"><canvas id="chartComprResumen"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: EQUIPO -->
+    <div id="tab-equipo" class="hidden">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-hdr"><h3>Resumen del equipo</h3></div>
+        <div class="card-body"><div class="chart-box" style="height:240px"><canvas id="chartEquipo"></canvas></div></div>
+      </div>
+      <div class="team-grid" id="teamGrid"></div>
+    </div>
+
+    <!-- TAB: PROVEEDORES -->
+    <div id="tab-proveedores" class="hidden">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-hdr"><h3>Top 15 proveedores con ítems afectando producción</h3></div>
+        <div class="card-body"><div class="chart-box" style="height:380px"><canvas id="chartProv"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr">
+          <h3>Detalle por proveedor</h3>
+          <input type="text" class="search" placeholder="Buscar proveedor..." id="provSearch" oninput="renderProvTable()" style="min-width:180px"/>
+        </div>
+        <div class="card-body">
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th onclick="sortProv('name')">Proveedor ↕</th>
+                <th onclick="sortProv('total')">Total ítems ↕</th>
+                <th onclick="sortProv('afectacion')">Afectación ↕</th>
+                <th onclick="sortProv('fecha_nc')">Fecha NC ↕</th>
+                <th onclick="sortProv('cant_faltante')">Cant. faltante ↕</th>
+                <th onclick="sortProv('lt_avg')">LT prom. (días) ↕</th>
+                <th>Estado general</th>
+              </tr></thead>
+              <tbody id="provTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: CRONOGRAMA -->
+    <div id="tab-cronograma" class="hidden">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-hdr"><h3>Ítems por semana en planta — estado de abastecimiento</h3>
+          <span style="font-size:.75rem;color:var(--muted)">Semanas próximas ordenadas cronológicamente</span>
+        </div>
+        <div class="card-body"><div class="chart-box" style="height:320px"><canvas id="chartCronograma"></canvas></div></div>
+      </div>
+      <div class="card">
+        <div class="card-hdr"><h3>Detalle por semana</h3></div>
+        <div class="card-body">
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th>Semana</th>
+                <th>Total ítems</th>
+                <th>OK</th>
+                <th>En tránsito</th>
+                <th>OC gestión</th>
+                <th>SC gestión</th>
+                <th>Fecha NC</th>
+                <th>Afectación</th>
+                <th>% Cubierto</th>
+                <th>Cant. faltante</th>
+              </tr></thead>
+              <tbody id="semanaTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: AFECTACIONES -->
+    <div id="tab-afectaciones" class="hidden">
+      <div class="card">
+        <div class="card-hdr">
+          <h3>Ítems que requieren acción inmediata</h3>
+          <div class="toolbar">
+            <select class="sel" id="filtroEstado" onchange="renderAfectTable()">
+              <option value="">Todos los estados</option>
+              <option value="Afectación">🔴 Afectación</option>
+              <option value="Fecha no cumplida">🟡 Fecha no cumplida</option>
+              <option value="SC en gestión">🟣 SC en gestión</option>
+              <option value="OC en gestión">🔵 OC en gestión</option>
+              <option value="Transito">⚪ Tránsito</option>
+            </select>
+            <select class="sel" id="filtroLinea" onchange="renderAfectTable()">
+              <option value="">Todas las líneas</option>
+              <option value="M1">M1</option>
+              <option value="M2">M2</option>
+            </select>
+            <select class="sel" id="filtroComprador" onchange="renderAfectTable()">
+              <option value="">Todos los compradores</option>
+            </select>
+            <select class="sel" id="filtroSemana" onchange="renderAfectTable()">
+              <option value="">Todas las semanas</option>
+              <option value="Afectando">Solo Afectando</option>
+            </select>
+            <input type="text" class="search" placeholder="Buscar ítem o descripción..." id="afectSearch" oninput="renderAfectTable()"/>
+          </div>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:10px;font-size:.78rem;color:var(--muted)" id="afectCount"></div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr>
+                <th>Estado</th>
+                <th onclick="sortAfect('item')">Ítem ↕</th>
+                <th>Descripción</th>
+                <th onclick="sortAfect('linea')">Línea ↕</th>
+                <th onclick="sortAfect('ep')">EP ↕</th>
+                <th onclick="sortAfect('comprador')">Comprador ↕</th>
+                <th onclick="sortAfect('proveedor')">Proveedor ↕</th>
+                <th onclick="sortAfect('cant_req')">Requerido ↕</th>
+                <th onclick="sortAfect('cant_pend')">En bodega ↕</th>
+                <th onclick="sortAfect('cant_faltante')">Faltante ↕</th>
+                <th onclick="sortAfect('lt')">LT días ↕</th>
+                <th>Semana</th>
+                <th>Gestión</th>
+              </tr></thead>
+              <tbody id="afectTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pgn" id="afectPgn"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /dashboard -->
+
+<script>
+// ─────────────────────────────────────────────
+// COLUMN NAMES (exact match with the file)
+// ─────────────────────────────────────────────
+const C = {
+  tipo:       'Tipo Demanda',
+  op:         'OP / DOC',
+  ep:         'EP',
+  item:       'Item',
+  desc:       'Descripción',
+  und:        'Und Inv',
+  bodega:     'Bodega',
+  cant_req:   'Cantidad Requerida',
+  cant_pend:  'Cantidad Pendiente',
+  cant_fi:    'Cant Penditiente - Inventario',  // typo in file
+  fecha_req:  'Fecha Requerido',
+  fecha_plan: 'Fecha Planeación',
+  inventario: 'P_Abastecimiento.Inventario',
+  familia:    'P_Abastecimiento.c70_nombre_familia_mrp',
+  est_cob:    'Estado cobertura',
+  linea:      'Linea de produccion',
+  proveedor:  'Proveedor',
+  est_abas:   'Estado abastecimiento',
+  año:        'Año',
+  mes:        'Mes ',
+  semana:     'Semana',
+  sem_planta: 'Semana en planta',
+  meta:       'METAS MENSUALES.Meta mes',
+  gestion:    'ITEMS GESTION.GESTIÓN',
+  comprador:  'COMPRADOR.NEGOCIADOR',
+  lt:         'LT',
+  stock:      'Stock',
+};
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+const S = {
+  summary: null,
+  detailRows: [],   // rows for afectaciones table
+  provSort: { col: 'afectacion', dir: -1 },
+  afectSort: { col: 'cant_faltante', dir: -1 },
+  afectPage: 1,
+  afectPageSize: 50,
+  charts: {},
+};
+
+// ─────────────────────────────────────────────
+// UPLOAD
+// ─────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+function handleFile(file) {
+  if (!file) return;
+  document.getElementById('uploadWrap').classList.add('hidden');
+  document.getElementById('loadingWrap').classList.remove('hidden');
+  setProgress(5, 'Leyendo archivo…');
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    setProgress(20, 'Parseando Excel…');
+    setTimeout(() => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+        setProgress(40, 'Buscando hoja Explosión…');
+
+        // Find Explosión sheet (case-insensitive)
+        const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('explosi')) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        setProgress(55, `Procesando ${sheetName}…`);
+
+        setTimeout(() => {
+          const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          setProgress(75, `Analizando ${rows.length.toLocaleString()} registros…`);
+          setTimeout(() => {
+            const summary = buildSummary(rows);
+            setProgress(95, 'Construyendo dashboard…');
+            setTimeout(() => {
+              S.summary = summary;
+              document.getElementById('fileBadge').textContent = file.name;
+              document.getElementById('fileBadge').classList.remove('hidden');
+              document.getElementById('btnReset').classList.remove('hidden');
+              renderDashboard();
+              document.getElementById('loadingWrap').classList.add('hidden');
+              document.getElementById('dashboard').classList.remove('hidden');
+              setProgress(100, 'Listo');
+            }, 100);
+          }, 100);
+        }, 100);
+      } catch(err) {
+        alert('Error al leer el archivo: ' + err.message);
+        resetApp();
+      }
+    }, 100);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function setProgress(pct, msg) {
+  document.getElementById('progressBar').style.width = pct + '%';
+  document.getElementById('loadingMsg').textContent = msg;
+}
+
+function resetApp() {
+  S.summary = null; S.detailRows = [];
+  Object.values(S.charts).forEach(c => { try { c.destroy(); } catch(e){} });
+  S.charts = {};
+  document.getElementById('uploadWrap').classList.remove('hidden');
+  document.getElementById('loadingWrap').classList.add('hidden');
+  document.getElementById('dashboard').classList.add('hidden');
+  document.getElementById('fileBadge').classList.add('hidden');
+  document.getElementById('btnReset').classList.add('hidden');
+  fileInput.value = '';
+}
+
+// ─────────────────────────────────────────────
+// DATA PROCESSING
+// ─────────────────────────────────────────────
+function buildSummary(rows) {
+  const sm = {
+    total: rows.length,
+    items: new Set(),
+    eps: new Set(),
+    ops: new Set(),
+    total_req: 0, total_pend: 0, total_fi: 0,
+    por_estado: {},
+    por_comprador: {},
+    por_proveedor_afect: {},
+    por_semana: {},
+    por_linea: {},
+    por_meta: {},
+    traslados_count: 0,
+    detailRows: [],
+  };
+
+  const ESTADO_CRITICOS = new Set(['Afectación', 'Fecha no cumplida', 'SC en gestión', 'OC en gestión', 'Transito']);
+
+  rows.forEach(r => {
+    const item     = r[C.item];
+    const ep       = r[C.ep];
+    const op       = r[C.op];
+    const est      = r[C.est_abas] || 'Sin estado';
+    const comp     = r[C.comprador] || 'Sin asignar';
+    const prov     = r[C.proveedor] || 'Sin proveedor';
+    const sem      = String(r[C.sem_planta] || '');
+    const linea    = r[C.linea] || 'Sin línea';
+    const meta     = r[C.meta] || 'Sin meta';
+    const gestion  = r[C.gestion] || '';
+    const req      = toN(r[C.cant_req]);
+    const pend     = toN(r[C.cant_pend]);
+    const fi       = toN(r[C.cant_fi]);
+    const lt       = toN(r[C.lt]);
+
+    if (item) sm.items.add(item);
+    if (ep)   sm.eps.add(ep);
+    if (op)   sm.ops.add(op);
+
+    sm.total_req  += req;
+    sm.total_pend += pend;
+    sm.total_fi   += fi;
+
+    // Por estado
+    if (!sm.por_estado[est]) sm.por_estado[est] = { count: 0, fi: 0 };
+    sm.por_estado[est].count++;
+    sm.por_estado[est].fi += fi;
+
+    // Por comprador
+    if (!sm.por_comprador[comp]) sm.por_comprador[comp] = { total: 0, afect: 0, fecha_nc: 0, sc: 0, oc: 0, ok: 0, fi: 0 };
+    const bc = sm.por_comprador[comp];
+    bc.total++;
+    bc.fi += fi;
+    if (est === 'Afectación')        bc.afect++;
+    else if (est === 'Fecha no cumplida') bc.fecha_nc++;
+    else if (est === 'SC en gestión')    bc.sc++;
+    else if (est === 'OC en gestión')    bc.oc++;
+    else if (est === 'OK')               bc.ok++;
+
+    // Por proveedor (solo los afectando produccion)
+    if (sem === 'Afectando') {
+      if (!sm.por_proveedor_afect[prov]) sm.por_proveedor_afect[prov] = { total: 0, afect: 0, fecha_nc: 0, fi: 0, lt_sum: 0, lt_n: 0 };
+      const bp = sm.por_proveedor_afect[prov];
+      bp.total++;
+      bp.fi += fi;
+      if (est === 'Afectación') bp.afect++;
+      if (est === 'Fecha no cumplida') bp.fecha_nc++;
+      if (lt > 0) { bp.lt_sum += lt; bp.lt_n++; }
+    }
+
+    // Por semana
+    if (!sm.por_semana[sem]) sm.por_semana[sem] = { ok: 0, transito: 0, oc: 0, sc: 0, fecha_nc: 0, afect: 0, total: 0, fi: 0 };
+    const bs = sm.por_semana[sem];
+    bs.total++;
+    bs.fi += fi;
+    if (est === 'OK')                 bs.ok++;
+    else if (est === 'Transito')      bs.transito++;
+    else if (est === 'OC en gestión') bs.oc++;
+    else if (est === 'SC en gestión') bs.sc++;
+    else if (est === 'Fecha no cumplida') bs.fecha_nc++;
+    else if (est === 'Afectación')    bs.afect++;
+
+    // Por línea
+    if (!sm.por_linea[linea]) sm.por_linea[linea] = { ok: 0, afect: 0, fecha_nc: 0, sc: 0, oc: 0, total: 0 };
+    const bl = sm.por_linea[linea];
+    bl.total++;
+    if (est === 'OK') bl.ok++;
+    else if (est === 'Afectación') bl.afect++;
+    else if (est === 'Fecha no cumplida') bl.fecha_nc++;
+    else if (est === 'SC en gestión') bl.sc++;
+    else if (est === 'OC en gestión') bl.oc++;
+
+    // Por meta
+    if (!sm.por_meta[meta]) sm.por_meta[meta] = 0;
+    sm.por_meta[meta]++;
+
+    // Traslados
+    if (gestion && gestion.toLowerCase().includes('trasladar')) sm.traslados_count++;
+
+    // Detail rows (estados críticos o afectando)
+    if (ESTADO_CRITICOS.has(est) || sem === 'Afectando') {
+      sm.detailRows.push({
+        item, ep, op,
+        desc:     r[C.desc] || '',
+        linea,
+        comp, prov, est,
+        sem,
+        req, pend, fi, lt,
+        gestion,
+        und:      r[C.und] || '',
+        meta,
+      });
+    }
+  });
+
+  return sm;
+}
+
+function toN(v) {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = parseFloat(String(v).replace(/,/g,''));
+  return isNaN(n) ? 0 : n;
+}
+
+// ─────────────────────────────────────────────
+// RENDER DASHBOARD
+// ─────────────────────────────────────────────
+function renderDashboard() {
+  const sm = S.summary;
+  S.detailRows = sm.detailRows;
+
+  const total = sm.total;
+  const afect    = sm.por_estado['Afectación']?.count || 0;
+  const fecha_nc = sm.por_estado['Fecha no cumplida']?.count || 0;
+  const sc       = sm.por_estado['SC en gestión']?.count || 0;
+  const oc       = sm.por_estado['OC en gestión']?.count || 0;
+  const ok       = sm.por_estado['OK']?.count || 0;
+
+  // KPIs
+  setText('kpiAfect',    afect.toLocaleString('es-CO'));
+  setText('kpiFecha',    fecha_nc.toLocaleString('es-CO'));
+  setText('kpiSinPedir', sc.toLocaleString('es-CO'));
+  setText('kpiOC',       oc.toLocaleString('es-CO'));
+  setText('kpiOK',       ok.toLocaleString('es-CO'));
+  setText('kpiItems',    sm.items.size.toLocaleString('es-CO'));
+  setText('kpiItemsSub', `${sm.eps.size} EPs · ${sm.ops.size} OPs`);
+
+  setBar('kpiAfectBar',    afect, total);
+  setBar('kpiFechaBar',    fecha_nc, total);
+  setBar('kpiSinPedirBar', sc, total);
+  setBar('kpiOCBar',       oc, total);
+  setBar('kpiOKBar',       ok, total);
+
+  // Alert banner
+  const critTotal = afect + fecha_nc;
+  const banner = document.getElementById('alertBanner');
+  const alertText = document.getElementById('alertText');
+  if (afect > 0) {
+    banner.className = 'alert-banner critical';
+    alertText.innerHTML = `<strong>${afect.toLocaleString()} ítems con afectación real</strong> sobre producción — más <strong>${fecha_nc.toLocaleString()}</strong> con fecha de entrega incumplida por proveedor. Requieren acción inmediata.`;
+  } else if (fecha_nc > 0) {
+    banner.className = 'alert-banner warn';
+    alertText.innerHTML = `<strong>${fecha_nc.toLocaleString()} proveedores han incumplido fecha</strong> de entrega comprometida. Sin afectación directa aún, pero en riesgo.`;
+  } else {
+    banner.className = 'alert-banner ok';
+    alertText.innerHTML = `<strong>Sin afectaciones críticas detectadas.</strong> El inventario está cubierto en los ítems analizados.`;
+  }
+
+  // Quick wins
+  const qw = document.getElementById('quickWinsBox');
+  qw.innerHTML = '';
+  if (sm.traslados_count > 0) {
+    qw.innerHTML += `<div class="quickwin"><div class="qicon">🚛</div><div class="quickwin-text"><strong>${sm.traslados_count.toLocaleString()} ítems se pueden resolver con traslados</strong> — el material existe en otra bodega o ciudad. No requieren compra nueva.</div></div>`;
+  }
+  const sin_pedir_urgent = sm.detailRows.filter(r => r.sem === 'Afectando' && r.est === 'SC en gestión').length;
+  if (sin_pedir_urgent > 0) {
+    qw.innerHTML += `<div class="quickwin" style="background:var(--purple-dim);border-color:var(--purple-border)"><div class="qicon">⚡</div><div class="quickwin-text"><strong>${sin_pedir_urgent.toLocaleString()} ítems afectando sin SC/OC generada</strong> — deben pedirse HOY. Ya están atrasados.</div></div>`;
+  }
+
+  // Populate buyer filter
+  const comprSel = document.getElementById('filtroComprador');
+  comprSel.innerHTML = '<option value="">Todos los compradores</option>';
+  Object.keys(sm.por_comprador).filter(c => c !== '0' && c !== 'Sin asignar').sort().forEach(c => {
+    comprSel.innerHTML += `<option value="${c}">${c}</option>`;
+  });
+
+  // Populate semana filter
+  const semSel = document.getElementById('filtroSemana');
+  const semanas = Object.keys(sm.por_semana).filter(s => s !== 'Afectando').map(s => ({ s, n: parseInt(s) || 999 })).sort((a,b) => a.n - b.n);
+  semanas.forEach(({ s }) => {
+    semSel.innerHTML += `<option value="${s}">Semana ${s}</option>`;
+  });
+
+  renderCharts();
+  renderTeam();
+  renderProvChart();
+  renderProvTable();
+  renderCronograma();
+  renderAfectTable();
+}
+
+// ─────────────────────────────────────────────
+// CHARTS
+// ─────────────────────────────────────────────
+function mkChart(id, config) {
+  if (S.charts[id]) S.charts[id].destroy();
+  S.charts[id] = new Chart(document.getElementById(id), config);
+}
+
+const ESTADO_COLORS = {
+  'OK':               '#10b981',
+  'Transito':         '#3b82f6',
+  'OC en gestión':    '#60a5fa',
+  'SC en gestión':    '#8b5cf6',
+  'Fecha no cumplida':'#f59e0b',
+  'Afectación':       '#ef4444',
+  'Sin estado':       '#64748b',
+};
+
+function renderCharts() {
+  const sm = S.summary;
+  const DARK = { color: '#94a3b8', grid: '#252d45' };
+
+  // Estado donut
+  const estados = Object.entries(sm.por_estado).sort((a,b) => b[1].count - a[1].count);
+  const eLabels = estados.map(([k]) => k);
+  const eData   = estados.map(([,v]) => v.count);
+  const eColors = estados.map(([k]) => ESTADO_COLORS[k] || '#64748b');
+  setText('chartEstadoSub', `${sm.total.toLocaleString()} registros totales`);
+  mkChart('chartEstado', {
+    type: 'doughnut',
+    data: { labels: eLabels, datasets: [{ data: eData, backgroundColor: eColors, borderWidth: 0 }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:'right', labels:{ color:DARK.color, font:{size:11} } } } }
+  });
+
+  // Por línea stacked bar
+  const lineas = Object.entries(sm.por_linea).filter(([k]) => k !== 'Sin línea');
+  mkChart('chartLinea', {
+    type: 'bar',
+    data: {
+      labels: lineas.map(([k]) => k),
+      datasets: [
+        { label:'OK',             data: lineas.map(([,v]) => v.ok),      backgroundColor:'#10b981' },
+        { label:'OC en gestión', data: lineas.map(([,v]) => v.oc),      backgroundColor:'#60a5fa' },
+        { label:'SC en gestión', data: lineas.map(([,v]) => v.sc),      backgroundColor:'#8b5cf6' },
+        { label:'Fecha NC',      data: lineas.map(([,v]) => v.fecha_nc),backgroundColor:'#f59e0b' },
+        { label:'Afectación',    data: lineas.map(([,v]) => v.afect),   backgroundColor:'#ef4444' },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false, scales:{
+      x:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}},
+      y:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}}
+    }, plugins:{legend:{labels:{color:DARK.color,font:{size:11}}}}}
+  });
+
+  // Por meta horizontal
+  const metas = Object.entries(sm.por_meta).sort((a,b) => b[1]-a[1]);
+  mkChart('chartMeta', {
+    type: 'bar',
+    data: {
+      labels: metas.map(([k]) => k),
+      datasets: [{ data: metas.map(([,v]) => v), backgroundColor: ['#f59e0b','#ef4444','#10b981','#3b82f6','#8b5cf6'], borderRadius:6 }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:DARK.color}, grid:{color:DARK.grid}},
+        y:{ticks:{color:DARK.color}, grid:{display:false}}
+      }
+    }
+  });
+
+  // Top 5 proveedores resumen
+  const provTop5 = Object.entries(sm.por_proveedor_afect).sort((a,b) => b[1].afect - a[1].afect).slice(0,5);
+  mkChart('chartProvResumen', {
+    type: 'bar',
+    data: {
+      labels: provTop5.map(([k]) => truncate(k,22)),
+      datasets: [
+        { label:'Afectación', data: provTop5.map(([,v]) => v.afect), backgroundColor:'#ef4444', borderRadius:4 },
+        { label:'Fecha NC',   data: provTop5.map(([,v]) => v.fecha_nc), backgroundColor:'#f59e0b', borderRadius:4 },
+      ]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:DARK.color,font:{size:11}}}},
+      scales:{
+        x:{ticks:{color:DARK.color},grid:{color:DARK.grid}},
+        y:{ticks:{color:DARK.color,font:{size:11}},grid:{display:false}}
+      }
+    }
+  });
+
+  // Compradores resumen
+  const comps = Object.entries(sm.por_comprador).filter(([k]) => k !== '0').sort((a,b) => (b[1].afect+b[1].fecha_nc) - (a[1].afect+a[1].fecha_nc)).slice(0,6);
+  mkChart('chartComprResumen', {
+    type: 'bar',
+    data: {
+      labels: comps.map(([k]) => k.split(' ')[0]),
+      datasets: [
+        { label:'Afectación',    data: comps.map(([,v]) => v.afect),    backgroundColor:'#ef4444', borderRadius:4 },
+        { label:'Fecha NC',      data: comps.map(([,v]) => v.fecha_nc), backgroundColor:'#f59e0b', borderRadius:4 },
+        { label:'SC en gestión', data: comps.map(([,v]) => v.sc),       backgroundColor:'#8b5cf6', borderRadius:4 },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:DARK.color,font:{size:11}}}},
+      scales:{
+        x:{ticks:{color:DARK.color},grid:{color:DARK.grid}},
+        y:{ticks:{color:DARK.color},grid:{color:DARK.grid}}
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// TEAM TAB
+// ─────────────────────────────────────────────
+function renderTeam() {
+  const sm = S.summary;
+  const DARK = { color: '#94a3b8', grid: '#252d45' };
+
+  const comps = Object.entries(sm.por_comprador).filter(([k]) => k !== '0' && k !== 'Sin asignar')
+    .sort((a,b) => (b[1].afect + b[1].fecha_nc) - (a[1].afect + a[1].fecha_nc));
+
+  // Stacked bar by buyer
+  mkChart('chartEquipo', {
+    type: 'bar',
+    data: {
+      labels: comps.map(([k]) => k),
+      datasets: [
+        { label:'Afectación',    data: comps.map(([,v]) => v.afect),    backgroundColor:'#ef4444', borderRadius:4 },
+        { label:'Fecha NC',      data: comps.map(([,v]) => v.fecha_nc), backgroundColor:'#f59e0b', borderRadius:4 },
+        { label:'SC en gestión', data: comps.map(([,v]) => v.sc),       backgroundColor:'#8b5cf6', borderRadius:4 },
+        { label:'OC en gestión', data: comps.map(([,v]) => v.oc),       backgroundColor:'#3b82f6', borderRadius:4 },
+        { label:'OK',            data: comps.map(([,v]) => v.ok),       backgroundColor:'#10b981', borderRadius:4 },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:DARK.color}}},
+      scales:{
+        x:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}},
+        y:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}}
+      }
+    }
+  });
+
+  // Team cards
+  const grid = document.getElementById('teamGrid');
+  grid.innerHTML = comps.map(([name, v]) => {
+    const criticos = v.afect + v.fecha_nc;
+    const pctCrit = v.total ? Math.round(criticos / v.total * 100) : 0;
+    const pctOK   = v.total ? Math.round(v.ok / v.total * 100) : 0;
+    const nivel = criticos > 100 ? ['Crítico','badge-red'] : criticos > 20 ? ['Atención','badge-yellow'] : ['Bajo riesgo','badge-green'];
+
+    return `<div class="team-card">
+      <div class="team-name">${name}</div>
+      <div class="team-total">${v.total.toLocaleString()} ítems en cartera</div>
+
+      <div class="team-stat"><span class="team-stat-label">🔴 Afectación real</span><span class="team-stat-val red">${v.afect.toLocaleString()}</span></div>
+      <div class="team-progress"><div class="team-progress-fill bg-red" style="width:${v.total?v.afect/v.total*100:0}%"></div></div>
+
+      <div class="team-stat"><span class="team-stat-label">🟡 Fecha NC</span><span class="team-stat-val yellow">${v.fecha_nc.toLocaleString()}</span></div>
+      <div class="team-progress"><div class="team-progress-fill bg-yellow" style="width:${v.total?v.fecha_nc/v.total*100:0}%"></div></div>
+
+      <div class="team-stat"><span class="team-stat-label">🟣 SC en gestión</span><span class="team-stat-val purple">${v.sc.toLocaleString()}</span></div>
+      <div class="team-progress"><div class="team-progress-fill bg-purple" style="width:${v.total?v.sc/v.total*100:0}%"></div></div>
+
+      <div class="team-stat"><span class="team-stat-label">🟢 OK</span><span class="team-stat-val green">${v.ok.toLocaleString()}</span></div>
+      <div class="team-progress"><div class="team-progress-fill bg-green" style="width:${v.total?v.ok/v.total*100:0}%"></div></div>
+
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+        <span class="team-badge ${nivel[1]}">${nivel[0]}</span>
+        <span style="font-size:.72rem;color:var(--muted)">${pctCrit}% con problemas · ${pctOK}% OK</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// PROVEEDORES TAB
+// ─────────────────────────────────────────────
+function renderProvChart() {
+  const DARK = { color: '#94a3b8', grid: '#252d45' };
+  const top15 = Object.entries(S.summary.por_proveedor_afect)
+    .sort((a,b) => b[1].afect - a[1].afect).slice(0,15).reverse();
+
+  mkChart('chartProv', {
+    type: 'bar',
+    data: {
+      labels: top15.map(([k]) => truncate(k,30)),
+      datasets: [
+        { label:'Afectación',    data: top15.map(([,v]) => v.afect),    backgroundColor:'#ef4444', borderRadius:4 },
+        { label:'Fecha NC',      data: top15.map(([,v]) => v.fecha_nc), backgroundColor:'#f59e0b', borderRadius:4 },
+        { label:'Otros afect.',  data: top15.map(([,v]) => v.total - v.afect - v.fecha_nc), backgroundColor:'#3b82f6', borderRadius:4 },
+      ]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:DARK.color}}},
+      scales:{
+        x:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}},
+        y:{stacked:true, ticks:{color:DARK.color,font:{size:11}}, grid:{display:false}}
+      }
+    }
+  });
+}
+
+let provSortKey = 'afect', provSortDir = -1;
+function sortProv(col) {
+  if (provSortKey === col) provSortDir *= -1; else { provSortKey = col; provSortDir = -1; }
+  renderProvTable();
+}
+
+function renderProvTable() {
+  const q = (document.getElementById('provSearch').value || '').toLowerCase();
+  let data = Object.entries(S.summary.por_proveedor_afect).map(([name, v]) => ({
+    name, ...v, lt_avg: v.lt_n ? Math.round(v.lt_sum / v.lt_n) : null
+  })).filter(r => !q || r.name.toLowerCase().includes(q));
+
+  data.sort((a,b) => {
+    const va = a[provSortKey] ?? -1, vb = b[provSortKey] ?? -1;
+    return typeof va === 'string' ? va.localeCompare(vb) * provSortDir : (va - vb) * provSortDir;
+  });
+
+  document.getElementById('provTableBody').innerHTML = data.map(r => {
+    const nivel = r.afect > 50 ? 'mini-red' : r.afect > 10 ? 'mini-yellow' : r.fecha_nc > 10 ? 'mini-yellow' : 'mini-green';
+    const label = r.afect > 50 ? 'Crítico' : r.afect > 10 ? 'Atención' : r.fecha_nc > 10 ? 'En riesgo' : 'Normal';
+    return `<tr>
+      <td><strong>${r.name}</strong></td>
+      <td>${r.total.toLocaleString()}</td>
+      <td class="red">${r.afect.toLocaleString()}</td>
+      <td class="yellow">${r.fecha_nc.toLocaleString()}</td>
+      <td>${r.fi.toFixed(0)}</td>
+      <td>${r.lt_avg !== null ? r.lt_avg + ' días' : '—'}</td>
+      <td><span class="mini ${nivel}">${label}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// CRONOGRAMA TAB
+// ─────────────────────────────────────────────
+function renderCronograma() {
+  const DARK = { color: '#94a3b8', grid: '#252d45' };
+  const sm = S.summary;
+
+  // Sort semanas: Afectando first, then numeric
+  const semOrden = Object.keys(sm.por_semana).sort((a,b) => {
+    if (a === 'Afectando') return -1;
+    if (b === 'Afectando') return 1;
+    return (parseInt(a)||999) - (parseInt(b)||999);
+  });
+
+  mkChart('chartCronograma', {
+    type: 'bar',
+    data: {
+      labels: semOrden.map(s => s === 'Afectando' ? '⚠ Afectando' : `Sem ${s}`),
+      datasets: [
+        { label:'OK',             data: semOrden.map(s => sm.por_semana[s].ok),       backgroundColor:'#10b981' },
+        { label:'Tránsito',       data: semOrden.map(s => sm.por_semana[s].transito), backgroundColor:'#3b82f6' },
+        { label:'OC en gestión', data: semOrden.map(s => sm.por_semana[s].oc),       backgroundColor:'#60a5fa' },
+        { label:'SC en gestión', data: semOrden.map(s => sm.por_semana[s].sc),       backgroundColor:'#8b5cf6' },
+        { label:'Fecha NC',      data: semOrden.map(s => sm.por_semana[s].fecha_nc), backgroundColor:'#f59e0b' },
+        { label:'Afectación',    data: semOrden.map(s => sm.por_semana[s].afect),    backgroundColor:'#ef4444' },
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:DARK.color}}},
+      scales:{
+        x:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}},
+        y:{stacked:true, ticks:{color:DARK.color}, grid:{color:DARK.grid}}
+      }
+    }
+  });
+
+  // Table
+  document.getElementById('semanaTableBody').innerHTML = semOrden.map(sem => {
+    const d = sm.por_semana[sem];
+    const cubiertos = d.ok + d.transito;
+    const pctCub = d.total ? Math.round(cubiertos / d.total * 100) : 0;
+    const riesgo = d.afect > 0 ? 'mini-red' : d.fecha_nc > 0 ? 'mini-yellow' : d.sc > 0 ? 'mini-purple' : 'mini-green';
+    const semLabel = sem === 'Afectando' ? '<span class="mini mini-red">⚠ Afectando</span>' : `<span class="mini mini-blue">Sem ${sem}</span>`;
+    return `<tr>
+      <td>${semLabel}</td>
+      <td><strong>${d.total.toLocaleString()}</strong></td>
+      <td class="green">${d.ok.toLocaleString()}</td>
+      <td class="blue">${d.transito.toLocaleString()}</td>
+      <td>${d.oc.toLocaleString()}</td>
+      <td class="purple">${d.sc.toLocaleString()}</td>
+      <td class="yellow">${d.fecha_nc.toLocaleString()}</td>
+      <td class="red"><strong>${d.afect.toLocaleString()}</strong></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pctCub}%;background:${pctCub>80?'#10b981':pctCub>50?'#f59e0b':'#ef4444'};border-radius:3px"></div>
+          </div>
+          <span style="font-size:.75rem;width:32px">${pctCub}%</span>
+        </div>
+      </td>
+      <td>${d.fi.toFixed(0)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// AFECTACIONES TABLE
+// ─────────────────────────────────────────────
+let afectSortKey = 'cant_faltante', afectSortDir = -1;
+
+function sortAfect(col) {
+  if (afectSortKey === col) afectSortDir *= -1; else { afectSortKey = col; afectSortDir = -1; }
+  S.afectPage = 1;
+  renderAfectTable();
+}
+
+function filterByStatus(st) {
+  document.getElementById('filtroEstado').value = st;
+  showTab('afectaciones');
+  renderAfectTable();
+}
+
+function renderAfectTable() {
+  const estFiltro  = document.getElementById('filtroEstado').value;
+  const lineaFiltro = document.getElementById('filtroLinea').value;
+  const compFiltro = document.getElementById('filtroComprador').value;
+  const semFiltro  = document.getElementById('filtroSemana').value;
+  const q = (document.getElementById('afectSearch').value || '').toLowerCase();
+
+  let data = S.detailRows.filter(r => {
+    if (estFiltro   && r.est   !== estFiltro)   return false;
+    if (lineaFiltro && r.linea !== lineaFiltro)  return false;
+    if (compFiltro  && r.comp  !== compFiltro)   return false;
+    if (semFiltro   && r.sem   !== semFiltro)    return false;
+    if (q && !String(r.item).toLowerCase().includes(q) && !r.desc.toLowerCase().includes(q) && !r.prov.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  // Sort
+  data = [...data].sort((a,b) => {
+    const fieldMap = { item:'item', cant_req:'req', cant_pend:'pend', cant_faltante:'fi', lt:'lt', ep:'ep', linea:'linea', comprador:'comp', proveedor:'prov' };
+    const f = fieldMap[afectSortKey] || afectSortKey;
+    const va = a[f] ?? 0, vb = b[f] ?? 0;
+    return typeof va === 'string' ? va.localeCompare(vb) * afectSortDir : (va - vb) * afectSortDir;
+  });
+
+  const total = data.length;
+  const pages = Math.max(1, Math.ceil(total / S.afectPageSize));
+  if (S.afectPage > pages) S.afectPage = 1;
+  const slice = data.slice((S.afectPage-1)*S.afectPageSize, S.afectPage*S.afectPageSize);
+
+  setText('afectCount', `${total.toLocaleString()} ítems — mostrando ${slice.length} (página ${S.afectPage}/${pages})`);
+
+  const ESTADO_MINI = {
+    'Afectación':       'mini-red',
+    'Fecha no cumplida':'mini-yellow',
+    'SC en gestión':    'mini-purple',
+    'OC en gestión':    'mini-blue',
+    'Transito':         'mini-blue',
+    'OK':               'mini-green',
+  };
+
+  document.getElementById('afectTableBody').innerHTML = slice.map(r => {
+    const cls = ESTADO_MINI[r.est] || 'mini-gray';
+    const semCls = r.sem === 'Afectando' ? 'mini-red' : 'mini-blue';
+    const fiColor = r.fi > 0 ? 'class="red"' : '';
+    return `<tr>
+      <td><span class="mini ${cls}">${r.est}</span></td>
+      <td><strong>${r.item}</strong></td>
+      <td title="${r.desc}" style="max-width:220px">${truncate(r.desc,40)}</td>
+      <td>${r.linea}</td>
+      <td>${r.ep}</td>
+      <td>${r.comp}</td>
+      <td title="${r.prov}">${truncate(r.prov,22)}</td>
+      <td>${r.req ? r.req.toFixed(1) : '—'}</td>
+      <td>${r.pend ? r.pend.toFixed(1) : '—'}</td>
+      <td ${fiColor}>${r.fi > 0 ? '<strong>'+r.fi.toFixed(1)+'</strong>' : '—'}</td>
+      <td>${r.lt || '—'}</td>
+      <td><span class="mini ${semCls}">${r.sem}</span></td>
+      <td style="max-width:180px;font-size:.72rem;color:var(--muted2)" title="${r.gestion}">${truncate(r.gestion,30)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="13" class="empty-state">Sin resultados con los filtros aplicados</td></tr>';
+
+  // Pagination
+  const pgn = document.getElementById('afectPgn');
+  pgn.innerHTML = `<span class="pgn-info">${total.toLocaleString()} resultados</span><div class="pgn-btns">`;
+  if (S.afectPage > 1) pgn.innerHTML += `<button class="pgn-btn" onclick="pgAfect(${S.afectPage-1})">‹</button>`;
+  const pgs = [...new Set([1, S.afectPage-1, S.afectPage, S.afectPage+1, pages].filter(p=>p>=1&&p<=pages))].sort((a,b)=>a-b);
+  pgs.forEach(p => pgn.innerHTML += `<button class="pgn-btn${p===S.afectPage?' active':''}" onclick="pgAfect(${p})">${p}</button>`);
+  if (S.afectPage < pages) pgn.innerHTML += `<button class="pgn-btn" onclick="pgAfect(${S.afectPage+1})">›</button>`;
+  pgn.innerHTML += `</div>`;
+}
+
+function pgAfect(p) { S.afectPage = p; renderAfectTable(); }
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+function showTab(name) {
+  ['resumen','equipo','proveedores','cronograma','afectaciones'].forEach(t => {
+    document.getElementById('tab-'+t).classList.add('hidden');
+  });
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', ['resumen','equipo','proveedores','cronograma','afectaciones'][i] === name));
+}
+
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function setBar(id, val, total) {
+  const el = document.getElementById(id);
+  if (el) el.style.width = (total ? Math.round(val/total*100) : 0) + '%';
+}
+function truncate(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n)+'…' : s; }
+</script>
+</body>
+</html>
