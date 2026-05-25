@@ -447,6 +447,89 @@ for(const [code, node] of Object.entries(NODES)){
   for(const child of node.children || []) PARENT[child] = code;
 }
 
+/* ── Router semántico — títulos de Secciones y Capítulos ─────────────────── */
+const ROUTER_TITLES = Object.entries(NODES)
+  .filter(([c]) => /^[IVXL]+$/.test(c) || /^\d{2}$/.test(c))
+  .map(([c, n]) => `[${c}] ${n.description}`)
+  .join('\n');
+
+const ROUTER_SYSTEM = `Eres un experto en clasificacion arancelaria de Colombia (Decreto 1881/2021).
+Dado un producto, identifica las Secciones y Capitulos del arancel que tienen
+mayor probabilidad de contener su clasificacion correcta O sus notas de exclusion.
+
+Analiza el producto considerando:
+1. Su naturaleza real (que ES fisicamente, independiente del nombre comercial)
+2. Su material principal de fabricacion
+3. Su uso o destino final (si se menciona o se puede inferir)
+4. Capitulos donde podria estar EXCLUIDO por notas legales (igual de importante)
+
+Responde UNICAMENTE con JSON valido sin markdown:
+{"candidates": ["codigo1", "codigo2", "codigo3"]}
+
+Incluye entre 3 y 6 codigos exactos de la lista. Siempre incluye tanto el
+capitulo probable de clasificacion como capitulos alternativos con exclusiones
+relevantes.`;
+
+async function callRouter(description){
+  const key = getKey();
+  const provider = getProvider();
+  const msg = `Producto: ${description}\n\nSecciones y Capitulos del arancel de Colombia:\n${ROUTER_TITLES}`;
+  let raw;
+  if(provider === "openai"){
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method:"POST",
+      headers:{"content-type":"application/json","authorization":`Bearer ${key}`},
+      body: JSON.stringify({
+        model:"gpt-4.1-mini", max_tokens:120,
+        messages:[{role:"system",content:ROUTER_SYSTEM},{role:"user",content:msg}],
+      }),
+    });
+    if(!resp.ok) throw new Error(`Router ${resp.status}`);
+    raw = (await resp.json()).choices[0].message.content.trim();
+  } else {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "x-api-key":key,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true",
+      },
+      body: JSON.stringify({
+        model:"claude-haiku-4-5-20251001", max_tokens:120,
+        system: ROUTER_SYSTEM,
+        messages:[{role:"user",content:msg}],
+      }),
+    });
+    if(!resp.ok) throw new Error(`Router ${resp.status}`);
+    raw = (await resp.json()).content[0].text.trim();
+  }
+  try {
+    const r = JSON.parse(raw);
+    return Array.isArray(r.candidates) ? r.candidates : [];
+  } catch {
+    const m = raw.match(/\{[\s\S]*\}/);
+    if(m){ const r = JSON.parse(m[0]); return Array.isArray(r.candidates) ? r.candidates : []; }
+    return [];
+  }
+}
+
+function buildRelevantNotesBlock(candidates){
+  const frags = [];
+  for(const code of candidates){
+    const node = NODES[code] || {};
+    for(const note of node.notes || []){
+      const text = (note.text || String(note)).slice(0, 600);
+      frags.push(`[${code}] ${node.description}:\n${text}${text.length === 600 ? "..." : ""}`);
+    }
+  }
+  if(!frags.length) return "";
+  return `NOTAS RELEVANTES DEL ARANCEL PARA ESTE PRODUCTO:\n`
+       + `(Leelas antes de navegar — contienen exclusiones e inclusiones clave)\n\n`
+       + frags.join("\n\n---\n\n")
+       + "\n\n";
+}
+
 function findAncestorIn(targetCode, availableCodes){
   let current = targetCode;
   const visited = new Set();
@@ -488,7 +571,7 @@ function formatOptions(children){
   }).join("\n");
 }
 
-function buildUserMsg(description, path, children, accNotes){
+function buildUserMsg(description, path, children, accNotes, relevantNotesBlock = ""){
   const pathParts = path.filter(c => c !== "ROOT").map(c => {
     const n = NODES[c] || {};
     return `${c} "${(n.description||"").slice(0,55)}"`;
@@ -502,6 +585,7 @@ function buildUserMsg(description, path, children, accNotes){
   const cur = NODES[path[path.length-1]] || {};
   const codes = children.map(c => c.code).join(", ");
   return `Producto: ${description}\n\n`
+       + relevantNotesBlock
        + `Ruta hasta aqui: ${pathParts.length ? pathParts.join(" -> ") : "inicio"}\n\n`
        + notesBlock
        + `Estas en: [${path[path.length-1]}] ${cur.description||""}\n\n`
@@ -584,7 +668,10 @@ async function callLLM(description, path, history){
   if(!children.length) return { action:"leaf", code:path[path.length-1], history };
 
   const accNotes = getAccNotes(path);
-  const userMsg  = buildUserMsg(description, path, children, accNotes);
+  const isFirst  = path.length === 1 && path[0] === "ROOT";
+  const relevantNotesBlock = isFirst && S.relevantNotes
+    ? buildRelevantNotesBlock(S.relevantNotes) : "";
+  const userMsg  = buildUserMsg(description, path, children, accNotes, relevantNotesBlock);
 
   const raw = provider === "openai"
     ? await callOpenAI(key, userMsg, history)
@@ -638,13 +725,15 @@ async function callLLM(description, path, history){
 
 /* ── State ───────────────────────────────────────────────────────────────── */
 let S = {
-  path:        ["ROOT"],
-  history:     [],
-  description: "",
-  step:        0,
-  busy:        false,
-  done:        false,
-  mode:        "initial",   // "initial" | "answering"
+  path:          ["ROOT"],
+  history:       [],
+  description:   "",
+  step:          0,
+  busy:          false,
+  done:          false,
+  mode:          "initial",   // "initial" | "answering"
+  relevantNotes: null,        // candidate codes from semantic router
+  routerDone:    false,
 };
 
 /* ── Tiny DOM helpers ────────────────────────────────────────────────────── */
@@ -801,6 +890,36 @@ function onSend(){
 }
 
 async function runStep(){
+  // ── Semantic router: run once before first navigation step ──────────────
+  if(S.path.length === 1 && !S.routerDone){
+    S.routerDone = true;
+    const rid = "rt-" + Date.now();
+    add(`<div class="msg-loading" id="${rid}">
+      <div class="dots"><span></span><span></span><span></span></div>
+      Identificando notas relevantes del arancel...
+    </div>`);
+    try {
+      S.relevantNotes = await callRouter(S.description);
+      console.log("[Router] candidatos:", S.relevantNotes);
+    } catch(e) {
+      console.warn("[Router] fallo, continua sin notas previas:", e.message);
+      S.relevantNotes = [];
+    }
+    rem(rid);
+    if(S.relevantNotes && S.relevantNotes.length){
+      const labels = S.relevantNotes.map(c => {
+        const n = NODES[c] || {};
+        return `<span style="background:#e0e7ff;color:#3730a3;padding:2px 7px;
+                border-radius:10px;font-size:11px;font-weight:600">${esc(c)}</span>`;
+      }).join(" ");
+      add(`<div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;
+                       padding:7px 14px;font-size:11px;color:#4338ca;display:flex;
+                       align-items:center;gap:8px;flex-wrap:wrap">
+        <span>&#128269; Notas pre-cargadas:</span>${labels}
+      </div>`);
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────
   const lid = "ld-" + Date.now();
   add(`<div class="msg-loading" id="${lid}">
     <div class="dots"><span></span><span></span><span></span></div>
@@ -886,7 +1005,8 @@ async function runStep(){
 /* ── Reset ───────────────────────────────────────────────────────────────── */
 function doReset(){
   S = { path:["ROOT"], history:[], description:"", step:0,
-        busy:false, done:false, mode:"initial" };
+        busy:false, done:false, mode:"initial",
+        relevantNotes:null, routerDone:false };
   $chat().innerHTML = `
     <div class="empty-state" id="empty-state">
       <div class="icon">&#128269;</div>
