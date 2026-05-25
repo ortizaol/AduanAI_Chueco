@@ -226,31 +226,31 @@ tr:last-child td{border-bottom:none}
       <div class="kpi" onclick="filterByStatus('Afectación')">
         <div class="kpi-label">🔴 Afectación real</div>
         <div class="kpi-value red" id="kpiAfect">—</div>
-        <div class="kpi-sub" id="kpiAfectSub">ítems sin cobertura</div>
+        <div class="kpi-sub">materiales únicos sin cobertura</div>
         <div class="kpi-bar"><div class="kpi-bar-fill bg-red" id="kpiAfectBar" style="width:0%"></div></div>
       </div>
       <div class="kpi" onclick="filterByStatus('Fecha no cumplida')">
         <div class="kpi-label">🟡 Fecha no cumplida</div>
         <div class="kpi-value yellow" id="kpiFecha">—</div>
-        <div class="kpi-sub">proveedor incumplió</div>
+        <div class="kpi-sub">materiales con proveedor incumplido</div>
         <div class="kpi-bar"><div class="kpi-bar-fill bg-yellow" id="kpiFechaBar" style="width:0%"></div></div>
       </div>
       <div class="kpi" onclick="filterByStatus('SC en gestión')">
         <div class="kpi-label">🟣 Sin pedir</div>
         <div class="kpi-value purple" id="kpiSinPedir">—</div>
-        <div class="kpi-sub">requieren SC/OC</div>
+        <div class="kpi-sub">materiales sin SC/OC generada</div>
         <div class="kpi-bar"><div class="kpi-bar-fill bg-purple" id="kpiSinPedirBar" style="width:0%"></div></div>
       </div>
       <div class="kpi" onclick="filterByStatus('OC en gestión')">
         <div class="kpi-label">🔵 OC en gestión</div>
         <div class="kpi-value blue" id="kpiOC">—</div>
-        <div class="kpi-sub">pedidos en proceso</div>
+        <div class="kpi-sub">materiales con OC en proceso</div>
         <div class="kpi-bar"><div class="kpi-bar-fill bg-blue" id="kpiOCBar" style="width:0%"></div></div>
       </div>
       <div class="kpi">
         <div class="kpi-label">🟢 OK</div>
         <div class="kpi-value green" id="kpiOK">—</div>
-        <div class="kpi-sub">cubiertos</div>
+        <div class="kpi-sub">materiales cubiertos</div>
         <div class="kpi-bar"><div class="kpi-bar-fill bg-green" id="kpiOKBar" style="width:0%"></div></div>
       </div>
       <div class="kpi">
@@ -555,124 +555,143 @@ function resetApp() {
 }
 
 // ─────────────────────────────────────────────
-// DATA PROCESSING
+// DATA PROCESSING — todos los conteos por ítems únicos
 // ─────────────────────────────────────────────
 function buildSummary(rows) {
-  const sm = {
-    total: rows.length,
-    items: new Set(),
-    eps: new Set(),
-    ops: new Set(),
-    total_req: 0, total_pend: 0, total_fi: 0,
-    por_estado: {},
-    por_comprador: {},
-    por_proveedor_afect: {},
-    por_semana: {},
-    por_linea: {},
-    por_meta: {},
-    traslados_count: 0,
-    detailRows: [],
-  };
+  // Acumuladores con Sets para contar ítems únicos
+  const _allItems = new Set(), _allEps = new Set(), _allOps = new Set();
+  const _estado   = {};  // est  -> { items: Set, fi: 0 }
+  const _comp     = {};  // comp -> { items, afect, fecha_nc, sc, oc, ok: Set, fi }
+  const _prov     = {};  // prov -> { items, afect, fecha_nc: Set, fi, lt_sum, lt_n }
+  const _semana   = {};  // sem  -> { ok, transito, oc, sc, fecha_nc, afect, all: Set, fi }
+  const _linea    = {};  // lin  -> { ok, afect, fecha_nc, sc, oc, all: Set }
+  const _meta     = {};  // meta -> Set
 
-  const ESTADO_CRITICOS = new Set(['Afectación', 'Fecha no cumplida', 'SC en gestión', 'OC en gestión', 'Transito']);
+  let total_req = 0, total_pend = 0, total_fi = 0, traslados_count = 0;
+  const CRITICOS = new Set(['Afectación','Fecha no cumplida','SC en gestión','OC en gestión','Transito']);
+  const detailRows = [];
+
+  const initS  = () => ({ items: new Set(), fi: 0 });
+  const initC  = () => ({ items: new Set(), afect: new Set(), fecha_nc: new Set(), sc: new Set(), oc: new Set(), ok: new Set(), fi: 0 });
+  const initP  = () => ({ items: new Set(), afect: new Set(), fecha_nc: new Set(), fi: 0, lt_sum: 0, lt_n: 0 });
+  const initSem= () => ({ ok: new Set(), transito: new Set(), oc: new Set(), sc: new Set(), fecha_nc: new Set(), afect: new Set(), all: new Set(), fi: 0 });
+  const initL  = () => ({ ok: new Set(), afect: new Set(), fecha_nc: new Set(), sc: new Set(), oc: new Set(), all: new Set() });
 
   rows.forEach(r => {
-    const item     = r[C.item];
-    const ep       = r[C.ep];
-    const op       = r[C.op];
-    const est      = r[C.est_abas] || 'Sin estado';
-    const comp     = r[C.comprador] || 'Sin asignar';
-    const prov     = r[C.proveedor] || 'Sin proveedor';
-    const sem      = String(r[C.sem_planta] || '');
-    const linea    = r[C.linea] || 'Sin línea';
-    const meta     = r[C.meta] || 'Sin meta';
-    const gestion  = r[C.gestion] || '';
-    const req      = toN(r[C.cant_req]);
-    const pend     = toN(r[C.cant_pend]);
-    const fi       = toN(r[C.cant_fi]);
-    const lt       = toN(r[C.lt]);
+    const item   = r[C.item];
+    const ep     = r[C.ep];
+    const op     = r[C.op];
+    const est    = r[C.est_abas] || 'Sin estado';
+    const comp   = r[C.comprador] || 'Sin asignar';
+    const prov   = r[C.proveedor] || 'Sin proveedor';
+    const sem    = String(r[C.sem_planta] || '');
+    const linea  = r[C.linea] || 'Sin línea';
+    const meta   = r[C.meta] || 'Sin meta';
+    const gestion= r[C.gestion] || '';
+    const req    = toN(r[C.cant_req]);
+    const pend   = toN(r[C.cant_pend]);
+    const fi     = toN(r[C.cant_fi]);
+    const lt     = toN(r[C.lt]);
 
-    if (item) sm.items.add(item);
-    if (ep)   sm.eps.add(ep);
-    if (op)   sm.ops.add(op);
+    if (item) _allItems.add(item);
+    if (ep)   _allEps.add(ep);
+    if (op)   _allOps.add(op);
+    total_req += req; total_pend += pend; total_fi += fi;
 
-    sm.total_req  += req;
-    sm.total_pend += pend;
-    sm.total_fi   += fi;
+    // Estado
+    if (!_estado[est]) _estado[est] = initS();
+    if (item) _estado[est].items.add(item);
+    _estado[est].fi += fi;
 
-    // Por estado
-    if (!sm.por_estado[est]) sm.por_estado[est] = { count: 0, fi: 0 };
-    sm.por_estado[est].count++;
-    sm.por_estado[est].fi += fi;
-
-    // Por comprador
-    if (!sm.por_comprador[comp]) sm.por_comprador[comp] = { total: 0, afect: 0, fecha_nc: 0, sc: 0, oc: 0, ok: 0, fi: 0 };
-    const bc = sm.por_comprador[comp];
-    bc.total++;
+    // Comprador
+    if (!_comp[comp]) _comp[comp] = initC();
+    const bc = _comp[comp];
+    if (item) bc.items.add(item);
     bc.fi += fi;
-    if (est === 'Afectación')        bc.afect++;
-    else if (est === 'Fecha no cumplida') bc.fecha_nc++;
-    else if (est === 'SC en gestión')    bc.sc++;
-    else if (est === 'OC en gestión')    bc.oc++;
-    else if (est === 'OK')               bc.ok++;
+    if      (est === 'Afectación')         { if (item) bc.afect.add(item); }
+    else if (est === 'Fecha no cumplida')  { if (item) bc.fecha_nc.add(item); }
+    else if (est === 'SC en gestión')      { if (item) bc.sc.add(item); }
+    else if (est === 'OC en gestión')      { if (item) bc.oc.add(item); }
+    else if (est === 'OK')                 { if (item) bc.ok.add(item); }
 
-    // Por proveedor (solo los afectando produccion)
+    // Proveedor (solo afectando)
     if (sem === 'Afectando') {
-      if (!sm.por_proveedor_afect[prov]) sm.por_proveedor_afect[prov] = { total: 0, afect: 0, fecha_nc: 0, fi: 0, lt_sum: 0, lt_n: 0 };
-      const bp = sm.por_proveedor_afect[prov];
-      bp.total++;
+      if (!_prov[prov]) _prov[prov] = initP();
+      const bp = _prov[prov];
+      if (item) bp.items.add(item);
       bp.fi += fi;
-      if (est === 'Afectación') bp.afect++;
-      if (est === 'Fecha no cumplida') bp.fecha_nc++;
+      if (est === 'Afectación')        { if (item) bp.afect.add(item); }
+      if (est === 'Fecha no cumplida') { if (item) bp.fecha_nc.add(item); }
       if (lt > 0) { bp.lt_sum += lt; bp.lt_n++; }
     }
 
-    // Por semana
-    if (!sm.por_semana[sem]) sm.por_semana[sem] = { ok: 0, transito: 0, oc: 0, sc: 0, fecha_nc: 0, afect: 0, total: 0, fi: 0 };
-    const bs = sm.por_semana[sem];
-    bs.total++;
+    // Semana
+    if (!_semana[sem]) _semana[sem] = initSem();
+    const bs = _semana[sem];
+    if (item) bs.all.add(item);
     bs.fi += fi;
-    if (est === 'OK')                 bs.ok++;
-    else if (est === 'Transito')      bs.transito++;
-    else if (est === 'OC en gestión') bs.oc++;
-    else if (est === 'SC en gestión') bs.sc++;
-    else if (est === 'Fecha no cumplida') bs.fecha_nc++;
-    else if (est === 'Afectación')    bs.afect++;
+    if      (est === 'OK')                 { if (item) bs.ok.add(item); }
+    else if (est === 'Transito')           { if (item) bs.transito.add(item); }
+    else if (est === 'OC en gestión')      { if (item) bs.oc.add(item); }
+    else if (est === 'SC en gestión')      { if (item) bs.sc.add(item); }
+    else if (est === 'Fecha no cumplida')  { if (item) bs.fecha_nc.add(item); }
+    else if (est === 'Afectación')         { if (item) bs.afect.add(item); }
 
-    // Por línea
-    if (!sm.por_linea[linea]) sm.por_linea[linea] = { ok: 0, afect: 0, fecha_nc: 0, sc: 0, oc: 0, total: 0 };
-    const bl = sm.por_linea[linea];
-    bl.total++;
-    if (est === 'OK') bl.ok++;
-    else if (est === 'Afectación') bl.afect++;
-    else if (est === 'Fecha no cumplida') bl.fecha_nc++;
-    else if (est === 'SC en gestión') bl.sc++;
-    else if (est === 'OC en gestión') bl.oc++;
+    // Línea
+    if (!_linea[linea]) _linea[linea] = initL();
+    const bl = _linea[linea];
+    if (item) bl.all.add(item);
+    if      (est === 'OK')                 { if (item) bl.ok.add(item); }
+    else if (est === 'Afectación')         { if (item) bl.afect.add(item); }
+    else if (est === 'Fecha no cumplida')  { if (item) bl.fecha_nc.add(item); }
+    else if (est === 'SC en gestión')      { if (item) bl.sc.add(item); }
+    else if (est === 'OC en gestión')      { if (item) bl.oc.add(item); }
 
-    // Por meta
-    if (!sm.por_meta[meta]) sm.por_meta[meta] = 0;
-    sm.por_meta[meta]++;
+    // Meta
+    if (!_meta[meta]) _meta[meta] = new Set();
+    if (item) _meta[meta].add(item);
 
-    // Traslados
-    if (gestion && gestion.toLowerCase().includes('trasladar')) sm.traslados_count++;
+    if (gestion && gestion.toLowerCase().includes('trasladar')) traslados_count++;
 
-    // Detail rows (estados críticos o afectando)
-    if (ESTADO_CRITICOS.has(est) || sem === 'Afectando') {
-      sm.detailRows.push({
-        item, ep, op,
-        desc:     r[C.desc] || '',
-        linea,
-        comp, prov, est,
-        sem,
-        req, pend, fi, lt,
-        gestion,
-        und:      r[C.und] || '',
-        meta,
-      });
+    if (CRITICOS.has(est) || sem === 'Afectando') {
+      detailRows.push({ item, ep, op, desc: r[C.desc]||'', linea, comp, prov, est, sem, req, pend, fi, lt, gestion, und: r[C.und]||'', meta });
     }
   });
 
-  return sm;
+  // Convertir Sets → números (ítems únicos)
+  const por_estado = {};
+  Object.entries(_estado).forEach(([k,v]) => { por_estado[k] = { count: v.items.size, fi: v.fi }; });
+
+  const por_comprador = {};
+  Object.entries(_comp).forEach(([k,v]) => {
+    por_comprador[k] = { total: v.items.size, afect: v.afect.size, fecha_nc: v.fecha_nc.size, sc: v.sc.size, oc: v.oc.size, ok: v.ok.size, fi: v.fi };
+  });
+
+  const por_proveedor_afect = {};
+  Object.entries(_prov).forEach(([k,v]) => {
+    por_proveedor_afect[k] = { total: v.items.size, afect: v.afect.size, fecha_nc: v.fecha_nc.size, fi: v.fi, lt_sum: v.lt_sum, lt_n: v.lt_n };
+  });
+
+  const por_semana = {};
+  Object.entries(_semana).forEach(([k,v]) => {
+    por_semana[k] = { ok: v.ok.size, transito: v.transito.size, oc: v.oc.size, sc: v.sc.size, fecha_nc: v.fecha_nc.size, afect: v.afect.size, total: v.all.size, fi: v.fi };
+  });
+
+  const por_linea = {};
+  Object.entries(_linea).forEach(([k,v]) => {
+    por_linea[k] = { ok: v.ok.size, afect: v.afect.size, fecha_nc: v.fecha_nc.size, sc: v.sc.size, oc: v.oc.size, total: v.all.size };
+  });
+
+  const por_meta = {};
+  Object.entries(_meta).forEach(([k,v]) => { por_meta[k] = v.size; });
+
+  return {
+    total: rows.length,
+    items: _allItems, eps: _allEps, ops: _allOps,
+    total_req, total_pend, total_fi,
+    por_estado, por_comprador, por_proveedor_afect, por_semana, por_linea, por_meta,
+    traslados_count, detailRows,
+  };
 }
 
 function toN(v) {
@@ -785,7 +804,7 @@ function renderCharts() {
   const eLabels = estados.map(([k]) => k);
   const eData   = estados.map(([,v]) => v.count);
   const eColors = estados.map(([k]) => ESTADO_COLORS[k] || '#64748b');
-  setText('chartEstadoSub', `${sm.total.toLocaleString()} registros totales`);
+  setText('chartEstadoSub', `${sm.items.size.toLocaleString()} materiales únicos · ${sm.total.toLocaleString()} registros`);
   mkChart('chartEstado', {
     type: 'doughnut',
     data: { labels: eLabels, datasets: [{ data: eData, backgroundColor: eColors, borderWidth: 0 }] },
