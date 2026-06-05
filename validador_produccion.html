@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Validador de Producción – Gantt vs Explosión vs Demanda Futura</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --card: #ffffff;
+      --primary: #1a56db;
+      --primary-dark: #1342b0;
+      --danger: #e02424;
+      --warning: #ff8800;
+      --success: #057a55;
+      --border: #d1d5db;
+      --row-alt: #f9fafb;
+      --diff: #fef3c7;
+      --diff-border: #d97706;
+      --error-row: #fee2e2;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #111827; font-size: 14px; }
+
+    header {
+      background: var(--primary);
+      color: white;
+      padding: 18px 32px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    header h1 { font-size: 20px; font-weight: 700; }
+    header span { font-size: 13px; opacity: .8; margin-left: auto; }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px 16px; }
+
+    .upload-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .upload-card {
+      background: var(--card);
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: border-color .2s, box-shadow .2s;
+      cursor: pointer;
+    }
+    .upload-card:hover, .upload-card.drag { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26,86,219,.12); }
+    .upload-card.loaded { border-style: solid; border-color: var(--success); }
+    .upload-card h3 { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .upload-card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .upload-card p { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
+    .upload-card .badge {
+      display: inline-block; font-size: 11px; font-weight: 600; border-radius: 9999px;
+      padding: 2px 10px; background: #e5e7eb; color: #374151;
+    }
+    .upload-card.loaded .badge { background: #d1fae5; color: var(--success); }
+    .file-input-label {
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; padding: 8px 14px;
+      background: var(--primary); color: white;
+      border-radius: 8px; font-size: 13px; font-weight: 600;
+      margin-top: 12px; width: fit-content;
+      transition: background .15s;
+    }
+    .file-input-label:hover { background: var(--primary-dark); }
+    input[type="file"] { display: none; }
+
+    .action-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+    button#btnProcesar {
+      padding: 11px 28px; background: var(--primary); color: white;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: 700;
+      cursor: pointer; transition: background .15s, transform .1s;
+    }
+    button#btnProcesar:hover:not(:disabled) { background: var(--primary-dark); }
+    button#btnProcesar:disabled { opacity: .4; cursor: not-allowed; }
+    button#btnProcesar:active:not(:disabled) { transform: scale(.98); }
+
+    .status-bar { font-size: 13px; color: #6b7280; flex: 1; }
+
+    #results { display: none; }
+    .section {
+      background: var(--card);
+      border-radius: 12px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      overflow: hidden;
+    }
+    .section-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      background: #f8fafc;
+    }
+    .section-header h2 { font-size: 16px; font-weight: 700; }
+    .pill {
+      font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 9999px;
+      background: #dbeafe; color: #1e40af;
+    }
+    .pill.danger { background: #fee2e2; color: var(--danger); }
+    .pill.success { background: #d1fae5; color: var(--success); }
+    .pill.warning { background: #fef3c7; color: #92400e; }
+    .section-body { padding: 20px; overflow-x: auto; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: #1e3a5f; color: white;
+      padding: 9px 12px; text-align: left; font-weight: 600;
+      position: sticky; top: 0;
+    }
+    thead th.center { text-align: center; }
+    tbody tr:nth-child(even) { background: var(--row-alt); }
+    tbody tr:hover { background: #eff6ff; }
+    tbody td { padding: 8px 12px; border-bottom: 1px solid #f3f4f6; }
+    tbody td.center { text-align: center; }
+    tbody td.mono { font-family: monospace; font-size: 12px; }
+
+    tr.diff-row { background: var(--diff) !important; }
+    tr.diff-row td { border-left: 3px solid var(--diff-border); }
+    tr.error-row { background: var(--error-row) !important; }
+
+    .badge-estado {
+      display: inline-block; font-size: 11px; font-weight: 700;
+      padding: 2px 8px; border-radius: 9999px;
+    }
+    .badge-OPFI { background: #dbeafe; color: #1e40af; }
+    .badge-EPGN { background: #fce7f3; color: #9d174d; }
+    .badge-FORC { background: #d1fae5; color: #065f46; }
+    .badge-STOCK { background: #e0e7ff; color: #3730a3; }
+    .badge-Cumplido { background: #fee2e2; color: #991b1b; }
+    .badge-Aprobado { background: #dbeafe; color: #1e40af; }
+    .badge-ND { background: #fce7f3; color: #9d174d; }
+    .badge-multi { background: #fef3c7; color: #92400e; }
+
+    .icon-ok { color: var(--success); font-weight: 700; }
+    .icon-err { color: var(--danger); font-weight: 700; }
+    .icon-warn { color: var(--warning); font-weight: 700; }
+
+    .empty-msg { text-align: center; padding: 28px; color: #6b7280; font-style: italic; }
+    .ok-banner {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 20px; background: #d1fae5; border-radius: 8px;
+      color: var(--success); font-weight: 600; font-size: 14px;
+    }
+
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px; margin-bottom: 20px;
+    }
+    .summary-card {
+      background: #f8fafc; border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px;
+    }
+    .summary-card .num { font-size: 28px; font-weight: 800; color: var(--primary); }
+    .summary-card .lbl { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .summary-card.danger .num { color: var(--danger); }
+    .summary-card.warning .num { color: var(--warning); }
+
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 20px; font-size: 12px; color: #6b7280; background: #f8fafc; border-top: 1px solid var(--border); }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+
+    @media print {
+      header { background: #1a56db !important; -webkit-print-color-adjust: exact; }
+      .upload-grid, .action-bar { display: none !important; }
+      .section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+  <h1>Validador de Producción</h1>
+  <span>Gantt · Explosión · Demanda Futura</span>
+</header>
+
+<div class="container">
+
+  <!-- Upload cards -->
+  <div class="upload-grid">
+    <!-- Gantt -->
+    <div class="upload-card" id="card-gantt">
+      <h3>Archivo 1</h3>
+      <h2>Gantt</h2>
+      <p>Hoja: <strong>2_GANTT_*</strong> · Columnas: C20_op, Estado, EP</p>
+      <span class="badge" id="badge-gantt">Sin cargar</span>
+      <br>
+      <label class="file-input-label" for="inputGantt">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Seleccionar archivo
+      </label>
+      <input type="file" id="inputGantt" accept=".xlsx,.xls,.xlsb">
+    </div>
+
+    <!-- Explosión -->
+    <div class="upload-card" id="card-explosion">
+      <h3>Archivo 2</h3>
+      <h2>Explosión</h2>
+      <p>Hoja: <strong>4_Archivos_*</strong> · Columnas: OP/DOC, Tipo Demanda, EP</p>
+      <span class="badge" id="badge-explosion">Sin cargar</span>
+      <br>
+      <label class="file-input-label" for="inputExplosion">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Seleccionar archivo
+      </label>
+      <input type="file" id="inputExplosion" accept=".xlsx,.xls,.xlsb">
+    </div>
+
+    <!-- Demanda Futura -->
+    <div class="upload-card" id="card-demanda">
+      <h3>Archivo 3</h3>
+      <h2>Demanda Futura</h2>
+      <p>Hoja: <strong>Hoja2</strong> · Columnas: c27_op, c27_tipo_demanda, EP</p>
+      <span class="badge" id="badge-demanda">Sin cargar</span>
+      <br>
+      <label class="file-input-label" for="inputDemanda">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Seleccionar archivo
+      </label>
+      <input type="file" id="inputDemanda" accept=".xlsx,.xls,.xlsb">
+    </div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="action-bar">
+    <button id="btnProcesar" disabled onclick="procesar()">▶ Procesar y Validar</button>
+    <div class="status-bar" id="statusBar">Carga los tres archivos para continuar.</div>
+    <button onclick="window.print()" style="padding:9px 18px;border:1px solid var(--border);border-radius:8px;background:white;cursor:pointer;font-size:13px;">🖨 Imprimir / PDF</button>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+
+    <!-- PASO 1: Gantt vs Explosión -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Paso 1 — Gantt vs Explosión</h2>
+        <span class="pill" id="p1pill">Cargando…</span>
+      </div>
+      <div class="section-body">
+
+        <!-- Summary cards -->
+        <div class="summary-grid" id="p1summary"></div>
+
+        <!-- Alert A: OPs Cumplidas en Explosión -->
+        <h3 style="margin-bottom:10px;font-size:14px;">
+          🚨 A) OPs marcadas como <em>Cumplidas</em> en Gantt que aparecen en la Explosión
+        </h3>
+        <div id="p1a"></div>
+
+        <!-- Alert B: OPs con dos estados en Explosión -->
+        <h3 style="margin:18px 0 10px;font-size:14px;">
+          ⚠️ B) OPs con dos o más estados distintos en la Explosión
+        </h3>
+        <div id="p1b"></div>
+
+        <!-- Table C: Comparativa por EP -->
+        <h3 style="margin:18px 0 10px;font-size:14px;">
+          📊 C) Comparativa por EP — conteo de OPs por estado
+        </h3>
+        <div id="p1c"></div>
+
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--error-row);border:1px solid #fca5a5"></span>Error / alerta crítica</span>
+        <span><span class="swatch" style="background:var(--diff);border:1px solid var(--diff-border)"></span>Diferencia entre fuentes</span>
+        <span><span class="swatch" style="background:#f9fafb;border:1px solid var(--border)"></span>Sin diferencias</span>
+      </div>
+    </div>
+
+    <!-- PASO 2: Demanda Futura vs Explosión -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Paso 2 — Demanda Futura vs Explosión</h2>
+        <span class="pill" id="p2pill">Cargando…</span>
+      </div>
+      <div class="section-body">
+
+        <div class="summary-grid" id="p2summary"></div>
+
+        <h3 style="margin-bottom:10px;font-size:14px;">
+          📊 Comparativa por EP — conteo de OPs por estado (FORC / STOCK)
+        </h3>
+        <div id="p2table"></div>
+
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--diff);border:1px solid var(--diff-border)"></span>Diferencia entre fuentes</span>
+        <span><span class="swatch" style="background:#f9fafb;border:1px solid var(--border)"></span>Sin diferencias</span>
+      </div>
+    </div>
+
+  </div><!-- /results -->
+</div><!-- /container -->
+
+<script>
+/* =====================================================================
+   UTILIDADES
+   ===================================================================== */
+
+// Normaliza encabezados: trim + lowercase
+const norm = s => String(s ?? '').trim().toLowerCase();
+
+// Encuentra el índice de la primera columna que coincida con alguno de los candidatos
+function findCol(headers, ...candidates) {
+  const normed = headers.map(norm);
+  for (const c of candidates) {
+    const idx = normed.indexOf(norm(c));
+    if (idx !== -1) return idx;
+  }
+  // búsqueda parcial
+  for (const c of candidates) {
+    const idx = normed.findIndex(h => h.includes(norm(c)));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+// Encuentra la hoja cuyo nombre incluya algún candidato (case-insensitive)
+function findSheet(wb, ...candidates) {
+  for (const c of candidates) {
+    const name = wb.SheetNames.find(n => norm(n).includes(norm(c)));
+    if (name) return name;
+  }
+  return wb.SheetNames[0]; // fallback
+}
+
+// Lee Excel → array de objetos usando la primera fila como headers
+function readSheet(wb, sheetName) {
+  const ws = wb.Sheets[sheetName];
+  if (!ws) return { rows: [], headers: [], sheetName };
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+  if (raw.length < 2) return { rows: [], headers: raw[0] || [], sheetName };
+
+  // Busca la primera fila con datos reales (puede haber filas vacías arriba)
+  let hdrIdx = 0;
+  for (let i = 0; i < Math.min(20, raw.length); i++) {
+    if (raw[i].some(c => String(c).trim() !== '')) { hdrIdx = i; break; }
+  }
+  const headers = raw[hdrIdx].map(h => String(h).trim());
+  const rows = [];
+  for (let i = hdrIdx + 1; i < raw.length; i++) {
+    const obj = {};
+    headers.forEach((h, j) => { obj[h] = String(raw[i][j] ?? '').trim(); });
+    rows.push(obj);
+  }
+  return { rows, headers, sheetName };
+}
+
+const estado = {
+  ganttToExp: { 'aprobado': 'OPFI', '#n/d': 'EPGN', 'cumplido': 'CUMPLIDO' }
+};
+
+function normEstadoGantt(e) {
+  return norm(e) === '#n/d' ? '#N/D' : e;
+}
+
+/* =====================================================================
+   DATOS GLOBALES
+   ===================================================================== */
+let dataGantt = null, dataExplosion = null, dataDemanda = null;
+const loaded = { gantt: false, explosion: false, demanda: false };
+
+function checkReady() {
+  const all = loaded.gantt && loaded.explosion && loaded.demanda;
+  document.getElementById('btnProcesar').disabled = !all;
+  if (all) setStatus('✅ Los tres archivos están listos. Haz clic en Procesar.', false);
+}
+
+function setStatus(msg, loading = true) {
+  document.getElementById('statusBar').textContent = (loading ? '⏳ ' : '') + msg;
+}
+
+/* =====================================================================
+   CARGA DE ARCHIVOS
+   ===================================================================== */
+function setupInput(inputId, cardId, badgeId, key, sheetCandidates, onLoad) {
+  const input = document.getElementById(inputId);
+  input.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setStatus(`Leyendo ${file.name}…`);
+    const ab = await file.arrayBuffer();
+    const wb = XLSX.read(ab, { type: 'array' });
+    const sheetName = findSheet(wb, ...sheetCandidates);
+    const data = readSheet(wb, sheetName);
+    data.fileName = file.name;
+    onLoad(data);
+    loaded[key] = true;
+    document.getElementById(badgeId).textContent = `✓ ${file.name} (Hoja: ${sheetName}, ${data.rows.length} filas)`;
+    document.getElementById(cardId).classList.add('loaded');
+    checkReady();
+  });
+}
+
+setupInput('inputGantt', 'card-gantt', 'badge-gantt', 'gantt',
+  ['GANTT', '2_GANTT', 'gantt'],
+  d => { dataGantt = d; });
+
+setupInput('inputExplosion', 'card-explosion', 'badge-explosion', 'explosion',
+  ['Explosión', 'Explosion', '4_Archivos', 'explosión'],
+  d => { dataExplosion = d; });
+
+setupInput('inputDemanda', 'card-demanda', 'badge-demanda', 'demanda',
+  ['Hoja2', 'hoja2', 'Demanda', 'demanda'],
+  d => { dataDemanda = d; });
+
+/* =====================================================================
+   HELPERS DE RENDER
+   ===================================================================== */
+function badgeEstado(e) {
+  const cls = { 'OPFI': 'OPFI', 'EPGN': 'EPGN', 'FORC': 'FORC', 'STOCK': 'STOCK',
+                'CUMPLIDO': 'Cumplido', 'Aprobado': 'Aprobado', '#N/D': 'ND' }[e] || '';
+  return `<span class="badge-estado badge-${cls || 'ND'}">${e}</span>`;
+}
+
+function summaryCard(num, label, cls = '') {
+  return `<div class="summary-card ${cls}"><div class="num">${num}</div><div class="lbl">${label}</div></div>`;
+}
+
+function emptyOK(msg = 'Sin alertas — todo correcto ✓') {
+  return `<div class="ok-banner"><span style="font-size:20px">✅</span>${msg}</div>`;
+}
+
+function setPill(id, count, label) {
+  const el = document.getElementById(id);
+  if (count === 0) { el.textContent = label + ' — OK'; el.className = 'pill success'; }
+  else if (count < 5) { el.textContent = `${count} alertas`; el.className = 'pill warning'; }
+  else { el.textContent = `${count} alertas`; el.className = 'pill danger'; }
+}
+
+/* =====================================================================
+   PROCESAMIENTO PRINCIPAL
+   ===================================================================== */
+function procesar() {
+  setStatus('Procesando…');
+  document.getElementById('results').style.display = 'block';
+
+  try {
+    paso1_GanttVsExplosion();
+    paso2_DemandaVsExplosion();
+    setStatus('✅ Procesamiento completado.', false);
+  } catch(err) {
+    setStatus('❌ Error: ' + err.message, false);
+    console.error(err);
+  }
+}
+
+/* =====================================================================
+   PASO 1: GANTT vs EXPLOSIÓN
+   ===================================================================== */
+function paso1_GanttVsExplosion() {
+  const { rows: gRows, headers: gHdrs } = dataGantt;
+  const { rows: eRows, headers: eHdrs } = dataExplosion;
+
+  // --- Detectar columnas Gantt ---
+  const gOpIdx   = findCol(gHdrs, 'C20_op', 'C20_OP', 'OP', 'op', 'C20');
+  const gEstIdx  = findCol(gHdrs, 'Estado', 'estado', 'ESTADO', 'status');
+  const gEpIdx   = findCol(gHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.', 'C20_ep');
+
+  // --- Detectar columnas Explosión ---
+  const eOpIdx   = findCol(eHdrs, 'OP/DOC', 'op/doc', 'OP', 'op', 'DOC');
+  const eTdIdx   = findCol(eHdrs, 'Tipo Demanda', 'tipo demanda', 'TIPO DEMANDA', 'TipoDemanda');
+  const eEpIdx   = findCol(eHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.');
+
+  if (gOpIdx === -1) throw new Error('Gantt: no se encontró columna de OP (C20_op)');
+  if (gEstIdx === -1) throw new Error('Gantt: no se encontró columna Estado');
+  if (eOpIdx === -1) throw new Error('Explosión: no se encontró columna OP/DOC');
+  if (eTdIdx === -1) throw new Error('Explosión: no se encontró columna Tipo Demanda');
+
+  const gOpCol  = gHdrs[gOpIdx];
+  const gEstCol = gHdrs[gEstIdx];
+  const gEpCol  = gEpIdx !== -1 ? gHdrs[gEpIdx] : null;
+  const eOpCol  = eHdrs[eOpIdx];
+  const eTdCol  = eHdrs[eTdIdx];
+  const eEpCol  = eEpIdx !== -1 ? eHdrs[eEpIdx] : null;
+
+  // --- Construir mapa Gantt: op → { estado, ep } ---
+  // Solo OPs no vacías
+  const ganttMap = new Map(); // op_norm → { op, estado, ep }
+  for (const r of gRows) {
+    const op = r[gOpCol]?.trim();
+    if (!op) continue;
+    const estado = r[gEstCol]?.trim() || '';
+    const ep = gEpCol ? (r[gEpCol]?.trim() || '') : inferEP(op);
+    ganttMap.set(op.toUpperCase(), { op, estado, ep });
+  }
+
+  // --- Construir mapa Explosión: op → Set de tipos demanda, ep ---
+  // Deduplicar: misma OP puede aparecer N veces
+  const explMap = new Map(); // op_norm → { op, tipos: Set<string>, ep }
+  for (const r of eRows) {
+    const op = r[eOpCol]?.trim();
+    if (!op) continue;
+    const td = r[eTdCol]?.trim() || '';
+    if (!td) continue;
+    // Solo tipos relevantes al Paso 1
+    if (!['OPFI','EPGN','CUMPLIDO'].includes(td.toUpperCase()) &&
+        !td.toUpperCase().startsWith('OPFI') && !td.toUpperCase().startsWith('EPGN')) {
+      // podría ser FORC/STOCK → ignorar en paso 1
+    }
+    const key = op.toUpperCase();
+    const ep = eEpCol ? (r[eEpCol]?.trim() || '') : inferEP(op);
+    if (!explMap.has(key)) explMap.set(key, { op, tipos: new Set(), ep });
+    explMap.get(key).tipos.add(td);
+  }
+
+  // ---- A: OPs Cumplidas en Gantt que aparecen en Explosión ----
+  const cumplidas = [];
+  for (const [key, g] of ganttMap) {
+    if (norm(g.estado) === 'cumplido') {
+      if (explMap.has(key)) {
+        const e = explMap.get(key);
+        cumplidas.push({ op: g.op, ep: g.ep, estadosExp: [...e.tipos].join(', ') });
+      }
+    }
+  }
+
+  // ---- B: OPs con múltiples estados en Explosión ----
+  const multiEstado = [];
+  for (const [key, e] of explMap) {
+    // Filtrar solo tipos Paso 1: OPFI, EPGN (ignorar FORC/STOCK para este análisis)
+    const tiposFiltrados = [...e.tipos].filter(t =>
+      ['OPFI','EPGN'].includes(t.toUpperCase()) ||
+      t.toUpperCase().startsWith('OPFI') ||
+      t.toUpperCase().startsWith('EPGN')
+    );
+    if (tiposFiltrados.length > 1) {
+      const g = ganttMap.get(key);
+      multiEstado.push({
+        op: e.op, ep: e.ep,
+        estadosExp: tiposFiltrados.join(', '),
+        estadoGantt: g ? g.estado : '(no en Gantt)'
+      });
+    }
+  }
+
+  // ---- C: Tabla comparativa por EP ----
+  // Gantt: contar OPs por EP × estado_equivalente
+  // Explosión: contar OPs (únicas) por EP × tipo_demanda (solo OPFI y EPGN)
+
+  // Mapa EP → { OPFI: {gantt, expl}, EPGN: {gantt, expl} }
+  const epMap = new Map();
+
+  const getEP = (ep) => {
+    if (!epMap.has(ep)) epMap.set(ep, {
+      OPFI: { gantt: 0, expl: 0 },
+      EPGN: { gantt: 0, expl: 0 }
+    });
+    return epMap.get(ep);
+  };
+
+  // Gantt → mapear estados
+  for (const [, g] of ganttMap) {
+    const ep = g.ep || '(sin EP)';
+    const estadoN = norm(g.estado);
+    let tipoGantt = null;
+    if (estadoN === 'aprobado') tipoGantt = 'OPFI';
+    else if (estadoN === '#n/d') tipoGantt = 'EPGN';
+    else if (estadoN === 'cumplido') continue; // Cumplido no cuenta en tabla comparativa
+    if (tipoGantt) getEP(ep)[tipoGantt].gantt++;
+  }
+
+  // Explosión → solo OPFI y EPGN
+  for (const [, e] of explMap) {
+    const ep = e.ep || '(sin EP)';
+    for (const td of e.tipos) {
+      const tdu = td.toUpperCase();
+      if (tdu === 'OPFI' || tdu.startsWith('OPFI')) getEP(ep)['OPFI'].expl++;
+      else if (tdu === 'EPGN' || tdu.startsWith('EPGN')) getEP(ep)['EPGN'].expl++;
+    }
+  }
+
+  // Ordenar EPs
+  const eps = [...epMap.keys()].sort();
+
+  // ---- Render ----
+  let totalAlertas = cumplidas.length + multiEstado.length;
+  // contar filas con diferencias en tabla C
+  let diffCount = 0;
+  for (const ep of eps) {
+    const d = epMap.get(ep);
+    if (d.OPFI.gantt !== d.OPFI.expl || d.EPGN.gantt !== d.EPGN.expl) diffCount++;
+  }
+  totalAlertas += diffCount;
+  setPill('p1pill', totalAlertas, '0 diferencias');
+
+  // Summary cards
+  document.getElementById('p1summary').innerHTML =
+    summaryCard(ganttMap.size, 'OPs en Gantt') +
+    summaryCard(explMap.size, 'OPs únicas en Explosión') +
+    summaryCard(cumplidas.length, 'Cumplidas en Explosión ⚠️', cumplidas.length ? 'danger' : '') +
+    summaryCard(multiEstado.length, 'Con múltiples estados ⚠️', multiEstado.length ? 'warning' : '') +
+    summaryCard(diffCount, 'EPs con diferencias', diffCount ? 'warning' : '');
+
+  // A
+  const elA = document.getElementById('p1a');
+  if (cumplidas.length === 0) {
+    elA.innerHTML = emptyOK('No hay OPs Cumplidas que aparezcan en la Explosión.');
+  } else {
+    let html = `<table><thead><tr>
+      <th>EP</th><th>OP (Gantt)</th>
+      <th>Estado Gantt</th><th>Tipo(s) en Explosión</th>
+    </tr></thead><tbody>`;
+    for (const r of cumplidas) {
+      html += `<tr class="error-row">
+        <td class="mono">${r.ep}</td>
+        <td class="mono">${r.op}</td>
+        <td>${badgeEstado('CUMPLIDO')}</td>
+        <td>${r.estadosExp}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    elA.innerHTML = html;
+  }
+
+  // B
+  const elB = document.getElementById('p1b');
+  if (multiEstado.length === 0) {
+    elB.innerHTML = emptyOK('Ninguna OP tiene dos o más estados en la Explosión.');
+  } else {
+    let html = `<table><thead><tr>
+      <th>EP</th><th>OP</th>
+      <th>Estado en Gantt</th><th>Estados en Explosión</th>
+    </tr></thead><tbody>`;
+    for (const r of multiEstado) {
+      html += `<tr class="error-row">
+        <td class="mono">${r.ep}</td>
+        <td class="mono">${r.op}</td>
+        <td>${badgeEstado(normEstadoGantt(r.estadoGantt))}</td>
+        <td><span class="badge-estado badge-multi">${r.estadosExp}</span></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    elB.innerHTML = html;
+  }
+
+  // C
+  const elC = document.getElementById('p1c');
+  if (eps.length === 0) {
+    elC.innerHTML = '<p class="empty-msg">Sin datos.</p>';
+  } else {
+    let html = `<table><thead><tr>
+      <th>EP</th>
+      <th class="center">OPFI<br><small>Gantt</small></th>
+      <th class="center">OPFI<br><small>Explosión</small></th>
+      <th class="center">Δ OPFI</th>
+      <th class="center">EPGN<br><small>Gantt</small></th>
+      <th class="center">EPGN<br><small>Explosión</small></th>
+      <th class="center">Δ EPGN</th>
+      <th class="center">Estado</th>
+    </tr></thead><tbody>`;
+
+    let totGOPFI=0, totEOPFI=0, totGEPGN=0, totEEPGN=0;
+    for (const ep of eps) {
+      const d = epMap.get(ep);
+      const dOPFI = d.OPFI.expl - d.OPFI.gantt;
+      const dEPGN = d.EPGN.expl - d.EPGN.gantt;
+      const hasDiff = dOPFI !== 0 || dEPGN !== 0;
+      const cls = hasDiff ? 'diff-row' : '';
+      const fmtDiff = v => v === 0 ? '<span class="icon-ok">0</span>' : `<span class="icon-err">${v > 0 ? '+' : ''}${v}</span>`;
+      const icon = hasDiff
+        ? '<span class="icon-err">✗ Diferencia</span>'
+        : '<span class="icon-ok">✓ OK</span>';
+      html += `<tr class="${cls}">
+        <td class="mono"><strong>${ep}</strong></td>
+        <td class="center">${d.OPFI.gantt}</td>
+        <td class="center">${d.OPFI.expl}</td>
+        <td class="center">${fmtDiff(dOPFI)}</td>
+        <td class="center">${d.EPGN.gantt}</td>
+        <td class="center">${d.EPGN.expl}</td>
+        <td class="center">${fmtDiff(dEPGN)}</td>
+        <td class="center">${icon}</td>
+      </tr>`;
+      totGOPFI += d.OPFI.gantt; totEOPFI += d.OPFI.expl;
+      totGEPGN += d.EPGN.gantt; totEEPGN += d.EPGN.expl;
+    }
+    // Total row
+    const dTO = totEOPFI - totGOPFI, dTE = totEEPGN - totGEPGN;
+    const fmtD = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
+    html += `<tr style="background:#e0e7ff;font-weight:700;">
+      <td>TOTAL</td>
+      <td class="center">${totGOPFI}</td><td class="center">${totEOPFI}</td><td class="center">${fmtD(dTO)}</td>
+      <td class="center">${totGEPGN}</td><td class="center">${totEEPGN}</td><td class="center">${fmtD(dTE)}</td>
+      <td></td>
+    </tr>`;
+    html += '</tbody></table>';
+    elC.innerHTML = html;
+  }
+}
+
+/* =====================================================================
+   PASO 2: DEMANDA FUTURA vs EXPLOSIÓN
+   ===================================================================== */
+function paso2_DemandaVsExplosion() {
+  const { rows: dRows, headers: dHdrs } = dataDemanda;
+  const { rows: eRows, headers: eHdrs } = dataExplosion;
+
+  // --- Detectar columnas Demanda Futura ---
+  const dOpIdx  = findCol(dHdrs, 'c27_op', 'C27_OP', 'c27op', 'op', 'OP');
+  const dTdIdx  = findCol(dHdrs, 'c27_tipo_demanda', 'C27_TIPO_DEMANDA', 'tipo_demanda', 'tipo demanda', 'TipoDemanda');
+  const dEpIdx  = findCol(dHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.', 'c27_ep', 'C27_EP');
+
+  // --- Detectar columnas Explosión ---
+  const eOpIdx  = findCol(eHdrs, 'OP/DOC', 'op/doc', 'OP', 'op', 'DOC');
+  const eTdIdx  = findCol(eHdrs, 'Tipo Demanda', 'tipo demanda', 'TIPO DEMANDA', 'TipoDemanda');
+  const eEpIdx  = findCol(eHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.');
+
+  if (dOpIdx === -1) throw new Error('Demanda Futura: no se encontró columna c27_op');
+  if (dTdIdx === -1) throw new Error('Demanda Futura: no se encontró columna c27_tipo_demanda');
+
+  const dOpCol  = dHdrs[dOpIdx];
+  const dTdCol  = dHdrs[dTdIdx];
+  const dEpCol  = dEpIdx !== -1 ? dHdrs[dEpIdx] : null;
+  const eOpCol  = eHdrs[eOpIdx];
+  const eTdCol  = eHdrs[eTdIdx];
+  const eEpCol  = eEpIdx !== -1 ? eHdrs[eEpIdx] : null;
+
+  // --- Mapa Demanda Futura: op → { td, ep } ---
+  const demMap = new Map();
+  for (const r of dRows) {
+    const op = r[dOpCol]?.trim();
+    if (!op) continue;
+    const td = r[dTdCol]?.trim() || '';
+    const ep = dEpCol ? (r[dEpCol]?.trim() || '') : inferEP(op);
+    const key = op.toUpperCase();
+    if (!demMap.has(key)) demMap.set(key, { op, td, ep });
+  }
+
+  // --- Mapa Explosión filtrado a FORC/STOCK: op → { tipos, ep } ---
+  const explMap2 = new Map();
+  for (const r of eRows) {
+    const op = r[eOpCol]?.trim();
+    if (!op) continue;
+    const td = r[eTdCol]?.trim() || '';
+    const tdu = td.toUpperCase();
+    if (tdu !== 'FORC' && tdu !== 'STOCK') continue;
+    const ep = eEpCol ? (r[eEpCol]?.trim() || '') : inferEP(op);
+    const key = op.toUpperCase();
+    if (!explMap2.has(key)) explMap2.set(key, { op, tipos: new Set(), ep });
+    explMap2.get(key).tipos.add(td);
+  }
+
+  // --- Construir mapa EP → { FORC: {dem, expl}, STOCK: {dem, expl} } ---
+  const epMap2 = new Map();
+  const getEP2 = ep => {
+    if (!epMap2.has(ep)) epMap2.set(ep, {
+      FORC:  { dem: 0, expl: 0 },
+      STOCK: { dem: 0, expl: 0 }
+    });
+    return epMap2.get(ep);
+  };
+
+  // Demanda Futura
+  for (const [, d] of demMap) {
+    const ep = d.ep || '(sin EP)';
+    const tdu = d.td.toUpperCase();
+    if (tdu === 'FORC')  getEP2(ep).FORC.dem++;
+    else if (tdu === 'STOCK') getEP2(ep).STOCK.dem++;
+  }
+
+  // Explosión
+  for (const [, e] of explMap2) {
+    const ep = e.ep || '(sin EP)';
+    for (const td of e.tipos) {
+      const tdu = td.toUpperCase();
+      if (tdu === 'FORC')  getEP2(ep).FORC.expl++;
+      else if (tdu === 'STOCK') getEP2(ep).STOCK.expl++;
+    }
+  }
+
+  const eps2 = [...epMap2.keys()].sort();
+
+  let diffCount2 = 0;
+  for (const ep of eps2) {
+    const d = epMap2.get(ep);
+    if (d.FORC.dem !== d.FORC.expl || d.STOCK.dem !== d.STOCK.expl) diffCount2++;
+  }
+
+  setPill('p2pill', diffCount2, '0 diferencias');
+
+  // Summary
+  document.getElementById('p2summary').innerHTML =
+    summaryCard(demMap.size, 'OPs en Demanda Futura') +
+    summaryCard(explMap2.size, 'OPs únicas en Explosión (FORC/STOCK)') +
+    summaryCard(diffCount2, 'EPs con diferencias', diffCount2 ? 'warning' : '');
+
+  // Tabla
+  const el2 = document.getElementById('p2table');
+  if (eps2.length === 0) {
+    el2.innerHTML = '<p class="empty-msg">Sin datos de FORC/STOCK.</p>';
+    return;
+  }
+
+  let html = `<table><thead><tr>
+    <th>EP</th>
+    <th class="center">FORC<br><small>Dem. Futura</small></th>
+    <th class="center">FORC<br><small>Explosión</small></th>
+    <th class="center">Δ FORC</th>
+    <th class="center">STOCK<br><small>Dem. Futura</small></th>
+    <th class="center">STOCK<br><small>Explosión</small></th>
+    <th class="center">Δ STOCK</th>
+    <th class="center">Estado</th>
+  </tr></thead><tbody>`;
+
+  let totDF=0, totEF=0, totDS=0, totES=0;
+  for (const ep of eps2) {
+    const d = epMap2.get(ep);
+    const dF = d.FORC.expl - d.FORC.dem;
+    const dS = d.STOCK.expl - d.STOCK.dem;
+    const hasDiff = dF !== 0 || dS !== 0;
+    const cls = hasDiff ? 'diff-row' : '';
+    const fD = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
+    const icon = hasDiff
+      ? '<span class="icon-err">✗ Diferencia</span>'
+      : '<span class="icon-ok">✓ OK</span>';
+    html += `<tr class="${cls}">
+      <td class="mono"><strong>${ep}</strong></td>
+      <td class="center">${d.FORC.dem}</td><td class="center">${d.FORC.expl}</td><td class="center">${fD(dF)}</td>
+      <td class="center">${d.STOCK.dem}</td><td class="center">${d.STOCK.expl}</td><td class="center">${fD(dS)}</td>
+      <td class="center">${icon}</td>
+    </tr>`;
+    totDF+=d.FORC.dem; totEF+=d.FORC.expl;
+    totDS+=d.STOCK.dem; totES+=d.STOCK.expl;
+  }
+  const fDT = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
+  html += `<tr style="background:#e0e7ff;font-weight:700;">
+    <td>TOTAL</td>
+    <td class="center">${totDF}</td><td class="center">${totEF}</td><td class="center">${fDT(totEF-totDF)}</td>
+    <td class="center">${totDS}</td><td class="center">${totES}</td><td class="center">${fDT(totES-totDS)}</td>
+    <td></td>
+  </tr>`;
+  html += '</tbody></table>';
+  el2.innerHTML = html;
+}
+
+/* =====================================================================
+   HELPER: inferir EP desde código OP cuando no hay columna EP
+   ===================================================================== */
+function inferEP(op) {
+  // Intenta extraer un prefijo tipo "EP001" o primeros chars antes de "-"
+  const m = op.match(/^([A-Za-z]{1,4}\d*)/);
+  return m ? m[1] : op.substring(0, 4);
+}
+</script>
+</body>
+</html>
