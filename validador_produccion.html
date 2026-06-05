@@ -304,18 +304,24 @@
    ===================================================================== */
 
 // Normaliza encabezados: trim + lowercase
-const norm = s => String(s ?? '').trim().toLowerCase();
+// Normaliza para comparación: minúsculas + sin espacios (internos ni extremos)
+const norm     = s => String(s ?? '').trim().toLowerCase();
+const normCmp  = s => String(s ?? '').replace(/\s+/g, '').toLowerCase();
 
-// Encuentra el índice de la primera columna que coincida con alguno de los candidatos
+// Normaliza el texto de una celda: trim + colapsa espacios internos múltiples
+const normVal  = s => String(s ?? '').trim().replace(/\s{2,}/g, ' ');
+
+// Encuentra el índice de la primera columna que coincida con alguno de los candidatos.
+// La comparación ignora todos los espacios para tolerar variantes como "OP / DOC", "OP/DOC", "OP/DOC ".
 function findCol(headers, ...candidates) {
-  const normed = headers.map(norm);
+  const normed = headers.map(normCmp);
   for (const c of candidates) {
-    const idx = normed.indexOf(norm(c));
+    const idx = normed.indexOf(normCmp(c));
     if (idx !== -1) return idx;
   }
-  // búsqueda parcial
+  // búsqueda parcial (el candidato está contenido dentro del encabezado)
   for (const c of candidates) {
-    const idx = normed.findIndex(h => h.includes(norm(c)));
+    const idx = normed.findIndex(h => h.includes(normCmp(c)));
     if (idx !== -1) return idx;
   }
   return -1;
@@ -324,7 +330,7 @@ function findCol(headers, ...candidates) {
 // Encuentra la hoja cuyo nombre incluya algún candidato (case-insensitive)
 function findSheet(wb, ...candidates) {
   for (const c of candidates) {
-    const name = wb.SheetNames.find(n => norm(n).includes(norm(c)));
+    const name = wb.SheetNames.find(n => normCmp(n).includes(normCmp(c)));
     if (name) return name;
   }
   return wb.SheetNames[0]; // fallback
@@ -342,11 +348,13 @@ function readSheet(wb, sheetName) {
   for (let i = 0; i < Math.min(20, raw.length); i++) {
     if (raw[i].some(c => String(c).trim() !== '')) { hdrIdx = i; break; }
   }
-  const headers = raw[hdrIdx].map(h => String(h).trim());
+  // Los encabezados se normalizan: trim + espacios internos colapsados.
+  // Esto garantiza que "OP / DOC", "OP/DOC" y "OP/DOC " produzcan la misma clave.
+  const headers = raw[hdrIdx].map(h => String(h).trim().replace(/\s{2,}/g, ' '));
   const rows = [];
   for (let i = hdrIdx + 1; i < raw.length; i++) {
     const obj = {};
-    headers.forEach((h, j) => { obj[h] = String(raw[i][j] ?? '').trim(); });
+    headers.forEach((h, j) => { obj[h] = normVal(raw[i][j]); });
     rows.push(obj);
   }
   return { rows, headers, sheetName };
