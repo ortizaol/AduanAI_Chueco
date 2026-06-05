@@ -400,8 +400,13 @@ function setupInput(inputId, cardId, badgeId, key, sheetCandidates, onLoad) {
     data.fileName = file.name;
     onLoad(data);
     loaded[key] = true;
-    document.getElementById(badgeId).textContent = `✓ ${file.name} (Hoja: ${sheetName}, ${data.rows.length} filas)`;
+    document.getElementById(badgeId).textContent = `✓ ${file.name} (Hoja: "${sheetName}", ${data.rows.length} filas)`;
     document.getElementById(cardId).classList.add('loaded');
+    // Mostrar hojas disponibles y columnas detectadas para diagnóstico
+    document.getElementById(cardId).querySelector('p').innerHTML =
+      `<strong>Hojas:</strong> ${wb.SheetNames.map(n => `"${n}"`).join(', ')}<br>` +
+      `<strong>Hoja usada:</strong> "${sheetName}"<br>` +
+      `<strong>Columnas (${data.headers.length}):</strong> ${data.headers.map(h => `"${h}"`).join(', ')}`;
     checkReady();
   });
 }
@@ -454,7 +459,9 @@ function procesar() {
     paso2_DemandaVsExplosion();
     setStatus('✅ Procesamiento completado.', false);
   } catch(err) {
-    setStatus('❌ Error: ' + err.message, false);
+    const msg = err.message.replace(/\n/g, '\n');
+    document.getElementById('statusBar').innerHTML =
+      '❌ <strong>Error:</strong> ' + err.message.replace(/\n/g, '<br><small style="color:#9ca3af">') + '</small>';
     console.error(err);
   }
 }
@@ -476,10 +483,10 @@ function paso1_GanttVsExplosion() {
   const eTdIdx   = findCol(eHdrs, 'Tipo Demanda', 'tipo demanda', 'TIPO DEMANDA', 'TipoDemanda');
   const eEpIdx   = findCol(eHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.');
 
-  if (gOpIdx === -1) throw new Error('Gantt: no se encontró columna de OP (C20_op)');
-  if (gEstIdx === -1) throw new Error('Gantt: no se encontró columna Estado');
-  if (eOpIdx === -1) throw new Error('Explosión: no se encontró columna OP/DOC');
-  if (eTdIdx === -1) throw new Error('Explosión: no se encontró columna Tipo Demanda');
+  if (gOpIdx === -1) throw new Error(`Gantt: no se encontró columna OP (C20_op).\nColumnas disponibles: ${gHdrs.join(' | ')}`);
+  if (gEstIdx === -1) throw new Error(`Gantt: no se encontró columna Estado.\nColumnas disponibles: ${gHdrs.join(' | ')}`);
+  if (eOpIdx === -1) throw new Error(`Explosión: no se encontró columna OP/DOC.\nColumnas disponibles: ${eHdrs.join(' | ')}`);
+  if (eTdIdx === -1) throw new Error(`Explosión: no se encontró columna Tipo Demanda.\nColumnas disponibles: ${eHdrs.join(' | ')}`);
 
   const gOpCol  = gHdrs[gOpIdx];
   const gEstCol = gHdrs[gEstIdx];
@@ -719,8 +726,8 @@ function paso2_DemandaVsExplosion() {
   const eTdIdx  = findCol(eHdrs, 'Tipo Demanda', 'tipo demanda', 'TIPO DEMANDA', 'TipoDemanda');
   const eEpIdx  = findCol(eHdrs, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.');
 
-  if (dOpIdx === -1) throw new Error('Demanda Futura: no se encontró columna c27_op');
-  if (dTdIdx === -1) throw new Error('Demanda Futura: no se encontró columna c27_tipo_demanda');
+  if (dOpIdx === -1) throw new Error(`Demanda Futura: no se encontró columna c27_op.\nColumnas disponibles: ${dHdrs.join(' | ')}`);
+  if (dTdIdx === -1) throw new Error(`Demanda Futura: no se encontró columna c27_tipo_demanda.\nColumnas disponibles: ${dHdrs.join(' | ')}`);
 
   const dOpCol  = dHdrs[dOpIdx];
   const dTdCol  = dHdrs[dTdIdx];
