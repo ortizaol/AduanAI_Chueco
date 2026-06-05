@@ -343,11 +343,16 @@ function readSheet(wb, sheetName) {
   const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
   if (raw.length < 2) return { rows: [], headers: raw[0] || [], sheetName };
 
-  // Busca la primera fila con datos reales (puede haber filas vacías arriba)
+  // Busca la fila de encabezados: la que tenga más celdas no vacías dentro
+  // de las primeras 50 filas. Esto cubre archivos con títulos o filas en blanco arriba.
   let hdrIdx = 0;
-  for (let i = 0; i < Math.min(20, raw.length); i++) {
-    if (raw[i].some(c => String(c).trim() !== '')) { hdrIdx = i; break; }
+  let maxFilled = 0;
+  const SCAN = Math.min(50, raw.length);
+  for (let i = 0; i < SCAN; i++) {
+    const filled = raw[i].filter(c => String(c).trim() !== '').length;
+    if (filled > maxFilled) { maxFilled = filled; hdrIdx = i; }
   }
+
   // Los encabezados se normalizan: trim + espacios internos colapsados.
   // Esto garantiza que "OP / DOC", "OP/DOC" y "OP/DOC " produzcan la misma clave.
   const headers = raw[hdrIdx].map(h => String(h).trim().replace(/\s{2,}/g, ' '));
