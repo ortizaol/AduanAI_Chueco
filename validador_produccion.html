@@ -135,6 +135,8 @@
     .badge-Aprobado { background: #dbeafe; color: #1e40af; }
     .badge-ND { background: #fce7f3; color: #9d174d; }
     .badge-multi { background: #fef3c7; color: #92400e; }
+    .badge-nueva { background: #d1fae5; color: #065f46; }
+    .badge-eliminada { background: #fee2e2; color: #991b1b; }
 
     .icon-ok { color: var(--success); font-weight: 700; }
     .icon-err { color: var(--danger); font-weight: 700; }
@@ -176,7 +178,7 @@
 <header>
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
   <h1>Validador de Producción</h1>
-  <span>Gantt · Explosión · Demanda Futura</span>
+  <span>Gantt · Explosión · Demanda Futura · Cambios entre Gantts</span>
 </header>
 
 <div class="container">
@@ -224,12 +226,26 @@
       </label>
       <input type="file" id="inputDemanda" accept=".xlsx,.xls,.xlsb">
     </div>
+
+    <!-- Gantt Anterior (opcional) -->
+    <div class="upload-card" id="card-gantt-ant">
+      <h3>Archivo 4 · Opcional</h3>
+      <h2>Gantt Anterior</h2>
+      <p>Mismo formato que el Gantt actual. La fecha en el nombre (DDMMAAAA) determina cuál es más reciente.</p>
+      <span class="badge" id="badge-gantt-ant">Sin cargar (opcional)</span>
+      <br>
+      <label class="file-input-label" for="inputGanttAnt" style="background:#6b7280;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Seleccionar archivo
+      </label>
+      <input type="file" id="inputGanttAnt" accept=".xlsx,.xls,.xlsb">
+    </div>
   </div>
 
   <!-- Action bar -->
   <div class="action-bar">
     <button id="btnProcesar" disabled onclick="procesar()">▶ Procesar y Validar</button>
-    <div class="status-bar" id="statusBar">Carga los tres archivos para continuar.</div>
+    <div class="status-bar" id="statusBar">Carga los tres archivos obligatorios para continuar (el Gantt anterior es opcional).</div>
     <button onclick="window.print()" style="padding:9px 18px;border:1px solid var(--border);border-radius:8px;background:white;cursor:pointer;font-size:13px;">🖨 Imprimir / PDF</button>
   </div>
 
@@ -292,6 +308,28 @@
       <div class="legend">
         <span><span class="swatch" style="background:var(--diff);border:1px solid var(--diff-border)"></span>Diferencia entre fuentes</span>
         <span><span class="swatch" style="background:#f9fafb;border:1px solid var(--border)"></span>Sin diferencias</span>
+      </div>
+    </div>
+
+    <!-- PASO 3: Gantt Actual vs Gantt Anterior -->
+    <div class="section" id="section-p3" style="display:none;">
+      <div class="section-header">
+        <h2>Paso 3 — Cambios entre Gantts</h2>
+        <span class="pill" id="p3pill">Cargando…</span>
+      </div>
+      <div class="section-body">
+        <div id="p3info" style="margin-bottom:14px;font-size:13px;color:#6b7280;"></div>
+        <div class="summary-grid" id="p3summary"></div>
+
+        <h3 style="margin-bottom:10px;font-size:14px;">📋 Resumen de cambios por EP</h3>
+        <div id="p3ep"></div>
+
+        <h3 style="margin:18px 0 10px;font-size:14px;">📄 Listado de OPs Nuevas y Eliminadas</h3>
+        <div id="p3ops"></div>
+      </div>
+      <div class="legend">
+        <span><span class="swatch" style="background:#d1fae5;border:1px solid #6ee7b7"></span>OP Nueva</span>
+        <span><span class="swatch" style="background:#fee2e2;border:1px solid #fca5a5"></span>OP Eliminada</span>
       </div>
     </div>
 
@@ -374,13 +412,23 @@ function normEstadoGantt(e) {
 /* =====================================================================
    DATOS GLOBALES
    ===================================================================== */
-let dataGantt = null, dataExplosion = null, dataDemanda = null;
+let dataGantt = null, dataExplosion = null, dataDemanda = null, dataGanttAnt = null;
 const loaded = { gantt: false, explosion: false, demanda: false };
+
+// Extrae fecha DDMMAAAA del nombre de archivo y devuelve Date (o null)
+function fechaDeNombre(nombre) {
+  const m = nombre.match(/(\d{2})(\d{2})(\d{4})/);
+  if (!m) return null;
+  return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+}
 
 function checkReady() {
   const all = loaded.gantt && loaded.explosion && loaded.demanda;
   document.getElementById('btnProcesar').disabled = !all;
-  if (all) setStatus('✅ Los tres archivos están listos. Haz clic en Procesar.', false);
+  if (all) {
+    const antInfo = dataGanttAnt ? ` + Gantt anterior cargado.` : ` (Gantt anterior no cargado — Paso 3 omitido).`;
+    setStatus('✅ Archivos listos. Haz clic en Procesar.' + antInfo, false);
+  }
 }
 
 function setStatus(msg, loading = true) {
@@ -426,6 +474,15 @@ setupInput('inputDemanda', 'card-demanda', 'badge-demanda', 'demanda',
   ['Hoja2', 'hoja2', 'Demanda', 'demanda'],
   d => { dataDemanda = d; });
 
+// Gantt anterior: opcional, no bloquea el botón Procesar
+setupInput('inputGanttAnt', 'card-gantt-ant', 'badge-gantt-ant', '_noop',
+  ['GANTT', '2_GANTT', 'gantt'],
+  d => { dataGanttAnt = d; });
+// El input del Gantt anterior no debe marcar loaded ni llamar checkReady con llave real
+document.getElementById('inputGanttAnt').addEventListener('change', () => { /* manejado por setupInput */ });
+// Sobreescribir loaded._noop para que no afecte el botón
+Object.defineProperty(loaded, '_noop', { get: () => true, set: () => {}, configurable: true });
+
 /* =====================================================================
    HELPERS DE RENDER
    ===================================================================== */
@@ -451,6 +508,25 @@ function setPill(id, count, label) {
 }
 
 /* =====================================================================
+   HELPER: renderiza tabla comparativa por EP ordenando con-diferencia primero
+   ===================================================================== */
+function renderTablaEP(rows, colDefs, totRow) {
+  // rows: [{ ep, hasDiff, celdas:[] }]
+  const sorted = [...rows].sort((a, b) => {
+    if (a.hasDiff !== b.hasDiff) return a.hasDiff ? -1 : 1;
+    return a.ep.localeCompare(b.ep);
+  });
+  let html = `<table><thead><tr>${colDefs.map(c =>
+    `<th${c.center ? ' class="center"' : ''}>${c.label}</th>`).join('')}</tr></thead><tbody>`;
+  for (const r of sorted) {
+    html += `<tr class="${r.hasDiff ? 'diff-row' : ''}">${r.celdas.join('')}</tr>`;
+  }
+  html += totRow;
+  html += '</tbody></table>';
+  return html;
+}
+
+/* =====================================================================
    PROCESAMIENTO PRINCIPAL
    ===================================================================== */
 function procesar() {
@@ -460,9 +536,14 @@ function procesar() {
   try {
     paso1_GanttVsExplosion();
     paso2_DemandaVsExplosion();
+    if (dataGanttAnt) {
+      document.getElementById('section-p3').style.display = 'block';
+      paso3_GanttVsGanttAnterior();
+    } else {
+      document.getElementById('section-p3').style.display = 'none';
+    }
     setStatus('✅ Procesamiento completado.', false);
   } catch(err) {
-    const msg = err.message.replace(/\n/g, '\n');
     document.getElementById('statusBar').innerHTML =
       '❌ <strong>Error:</strong> ' + err.message.replace(/\n/g, '<br><small style="color:#9ca3af">') + '</small>';
     console.error(err);
@@ -658,57 +739,45 @@ function paso1_GanttVsExplosion() {
     elB.innerHTML = html;
   }
 
-  // C
+  // C — tabla ordenada: con diferencia primero
   const elC = document.getElementById('p1c');
   if (eps.length === 0) {
     elC.innerHTML = '<p class="empty-msg">Sin datos.</p>';
   } else {
-    let html = `<table><thead><tr>
-      <th>EP</th>
-      <th class="center">OPFI<br><small>Gantt</small></th>
-      <th class="center">OPFI<br><small>Explosión</small></th>
-      <th class="center">Δ OPFI</th>
-      <th class="center">EPGN<br><small>Gantt</small></th>
-      <th class="center">EPGN<br><small>Explosión</small></th>
-      <th class="center">Δ EPGN</th>
-      <th class="center">Estado</th>
-    </tr></thead><tbody>`;
-
+    const fmtD = v => v===0 ? '<span class="icon-ok">0</span>' : `<span class="icon-err">${v>0?'+':''}${v}</span>`;
     let totGOPFI=0, totEOPFI=0, totGEPGN=0, totEEPGN=0;
-    for (const ep of eps) {
+    const rows = eps.map(ep => {
       const d = epMap.get(ep);
       const dOPFI = d.OPFI.expl - d.OPFI.gantt;
       const dEPGN = d.EPGN.expl - d.EPGN.gantt;
       const hasDiff = dOPFI !== 0 || dEPGN !== 0;
-      const cls = hasDiff ? 'diff-row' : '';
-      const fmtDiff = v => v === 0 ? '<span class="icon-ok">0</span>' : `<span class="icon-err">${v > 0 ? '+' : ''}${v}</span>`;
-      const icon = hasDiff
-        ? '<span class="icon-err">✗ Diferencia</span>'
-        : '<span class="icon-ok">✓ OK</span>';
-      html += `<tr class="${cls}">
-        <td class="mono"><strong>${ep}</strong></td>
-        <td class="center">${d.OPFI.gantt}</td>
-        <td class="center">${d.OPFI.expl}</td>
-        <td class="center">${fmtDiff(dOPFI)}</td>
-        <td class="center">${d.EPGN.gantt}</td>
-        <td class="center">${d.EPGN.expl}</td>
-        <td class="center">${fmtDiff(dEPGN)}</td>
-        <td class="center">${icon}</td>
-      </tr>`;
+      const icon = hasDiff ? '<span class="icon-err">✗ Diferencia</span>' : '<span class="icon-ok">✓ OK</span>';
       totGOPFI += d.OPFI.gantt; totEOPFI += d.OPFI.expl;
       totGEPGN += d.EPGN.gantt; totEEPGN += d.EPGN.expl;
-    }
-    // Total row
-    const dTO = totEOPFI - totGOPFI, dTE = totEEPGN - totGEPGN;
-    const fmtD = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
-    html += `<tr style="background:#e0e7ff;font-weight:700;">
+      return { ep, hasDiff, celdas: [
+        `<td class="mono"><strong>${ep}</strong></td>`,
+        `<td class="center">${d.OPFI.gantt}</td>`,
+        `<td class="center">${d.OPFI.expl}</td>`,
+        `<td class="center">${fmtD(dOPFI)}</td>`,
+        `<td class="center">${d.EPGN.gantt}</td>`,
+        `<td class="center">${d.EPGN.expl}</td>`,
+        `<td class="center">${fmtD(dEPGN)}</td>`,
+        `<td class="center">${icon}</td>`,
+      ]};
+    });
+    const dTO = totEOPFI-totGOPFI, dTE = totEEPGN-totGEPGN;
+    const totRow = `<tr style="background:#e0e7ff;font-weight:700;">
       <td>TOTAL</td>
       <td class="center">${totGOPFI}</td><td class="center">${totEOPFI}</td><td class="center">${fmtD(dTO)}</td>
       <td class="center">${totGEPGN}</td><td class="center">${totEEPGN}</td><td class="center">${fmtD(dTE)}</td>
-      <td></td>
-    </tr>`;
-    html += '</tbody></table>';
-    elC.innerHTML = html;
+      <td></td></tr>`;
+    const colDefs = [
+      {label:'EP'}, {label:'OPFI<br><small>Gantt</small>',center:true},
+      {label:'OPFI<br><small>Explosión</small>',center:true}, {label:'Δ OPFI',center:true},
+      {label:'EPGN<br><small>Gantt</small>',center:true}, {label:'EPGN<br><small>Explosión</small>',center:true},
+      {label:'Δ EPGN',center:true}, {label:'Estado',center:true}
+    ];
+    elC.innerHTML = renderTablaEP(rows, colDefs, totRow);
   }
 }
 
@@ -815,46 +884,174 @@ function paso2_DemandaVsExplosion() {
     return;
   }
 
-  let html = `<table><thead><tr>
-    <th>EP</th>
-    <th class="center">FORC<br><small>Dem. Futura</small></th>
-    <th class="center">FORC<br><small>Explosión</small></th>
-    <th class="center">Δ FORC</th>
-    <th class="center">STOCK<br><small>Dem. Futura</small></th>
-    <th class="center">STOCK<br><small>Explosión</small></th>
-    <th class="center">Δ STOCK</th>
-    <th class="center">Estado</th>
-  </tr></thead><tbody>`;
-
+  const fD2 = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
   let totDF=0, totEF=0, totDS=0, totES=0;
-  for (const ep of eps2) {
+  const rows2 = eps2.map(ep => {
     const d = epMap2.get(ep);
     const dF = d.FORC.expl - d.FORC.dem;
     const dS = d.STOCK.expl - d.STOCK.dem;
     const hasDiff = dF !== 0 || dS !== 0;
-    const cls = hasDiff ? 'diff-row' : '';
-    const fD = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
-    const icon = hasDiff
-      ? '<span class="icon-err">✗ Diferencia</span>'
-      : '<span class="icon-ok">✓ OK</span>';
-    html += `<tr class="${cls}">
-      <td class="mono"><strong>${ep}</strong></td>
-      <td class="center">${d.FORC.dem}</td><td class="center">${d.FORC.expl}</td><td class="center">${fD(dF)}</td>
-      <td class="center">${d.STOCK.dem}</td><td class="center">${d.STOCK.expl}</td><td class="center">${fD(dS)}</td>
-      <td class="center">${icon}</td>
-    </tr>`;
+    const icon = hasDiff ? '<span class="icon-err">✗ Diferencia</span>' : '<span class="icon-ok">✓ OK</span>';
     totDF+=d.FORC.dem; totEF+=d.FORC.expl;
     totDS+=d.STOCK.dem; totES+=d.STOCK.expl;
-  }
-  const fDT = v => v===0?`<span class="icon-ok">0</span>`:`<span class="icon-err">${v>0?'+':''}${v}</span>`;
-  html += `<tr style="background:#e0e7ff;font-weight:700;">
+    return { ep, hasDiff, celdas: [
+      `<td class="mono"><strong>${ep}</strong></td>`,
+      `<td class="center">${d.FORC.dem}</td>`, `<td class="center">${d.FORC.expl}</td>`, `<td class="center">${fD2(dF)}</td>`,
+      `<td class="center">${d.STOCK.dem}</td>`, `<td class="center">${d.STOCK.expl}</td>`, `<td class="center">${fD2(dS)}</td>`,
+      `<td class="center">${icon}</td>`,
+    ]};
+  });
+  const totRow2 = `<tr style="background:#e0e7ff;font-weight:700;">
     <td>TOTAL</td>
-    <td class="center">${totDF}</td><td class="center">${totEF}</td><td class="center">${fDT(totEF-totDF)}</td>
-    <td class="center">${totDS}</td><td class="center">${totES}</td><td class="center">${fDT(totES-totDS)}</td>
-    <td></td>
-  </tr>`;
+    <td class="center">${totDF}</td><td class="center">${totEF}</td><td class="center">${fD2(totEF-totDF)}</td>
+    <td class="center">${totDS}</td><td class="center">${totES}</td><td class="center">${fD2(totES-totDS)}</td>
+    <td></td></tr>`;
+  const colDefs2 = [
+    {label:'EP'}, {label:'FORC<br><small>Dem. Futura</small>',center:true},
+    {label:'FORC<br><small>Explosión</small>',center:true}, {label:'Δ FORC',center:true},
+    {label:'STOCK<br><small>Dem. Futura</small>',center:true}, {label:'STOCK<br><small>Explosión</small>',center:true},
+    {label:'Δ STOCK',center:true}, {label:'Estado',center:true}
+  ];
+  el2.innerHTML = renderTablaEP(rows2, colDefs2, totRow2);
+}
+
+/* =====================================================================
+   PASO 3: GANTT ACTUAL vs GANTT ANTERIOR
+   ===================================================================== */
+function paso3_GanttVsGanttAnterior() {
+  // Determinar cuál Gantt es el más reciente por fecha en el nombre de archivo
+  const fechaAct = fechaDeNombre(dataGantt.fileName || '');
+  const fechaAnt = fechaDeNombre(dataGanttAnt.fileName || '');
+
+  let ganttNuevo = dataGantt, ganttViejo = dataGanttAnt;
+  let nombreNuevo = dataGantt.fileName, nombreViejo = dataGanttAnt.fileName;
+
+  if (fechaAct && fechaAnt && fechaAct < fechaAnt) {
+    // El archivo cargado como "actual" resulta ser más antiguo — invertir
+    ganttNuevo = dataGanttAnt; ganttViejo = dataGantt;
+    nombreNuevo = dataGanttAnt.fileName; nombreViejo = dataGantt.fileName;
+  }
+
+  document.getElementById('p3info').innerHTML =
+    `<strong>Gantt reciente:</strong> ${nombreNuevo} &nbsp;|&nbsp; <strong>Gantt anterior:</strong> ${nombreViejo}`;
+
+  // Detectar columnas en ambos gantts
+  function extraerOPs(data) {
+    const { rows, headers } = data;
+    const opIdx  = findCol(headers, 'C20_op', 'C20_OP', 'OP', 'op');
+    const epIdx  = findCol(headers, 'EP', 'ep', 'Elemento', 'elemento', 'E.P.', 'C20_ep');
+    const estIdx = findCol(headers, 'Estado', 'estado', 'ESTADO');
+    if (opIdx === -1) throw new Error(`Gantt "${data.fileName}": no se encontró columna OP.\nColumnas: ${headers.join(' | ')}`);
+    const opCol  = headers[opIdx];
+    const epCol  = epIdx !== -1 ? headers[epIdx] : null;
+    const estCol = estIdx !== -1 ? headers[estIdx] : null;
+    const map = new Map();
+    for (const r of rows) {
+      const op = r[opCol]?.trim();
+      if (!op) continue;
+      const ep = epCol ? (r[epCol]?.trim() || '') : inferEP(op);
+      const estado = estCol ? (r[estCol]?.trim() || '') : '';
+      map.set(op.toUpperCase(), { op, ep, estado });
+    }
+    return map;
+  }
+
+  const mapNuevo = extraerOPs(ganttNuevo);
+  const mapViejo = extraerOPs(ganttViejo);
+
+  // Calcular diferencias
+  const nuevas     = []; // en nuevo, no en viejo
+  const eliminadas = []; // en viejo, no en nuevo
+
+  for (const [key, v] of mapNuevo) {
+    if (!mapViejo.has(key)) nuevas.push({ op: v.op, ep: v.ep, estado: v.estado });
+  }
+  for (const [key, v] of mapViejo) {
+    if (!mapNuevo.has(key)) eliminadas.push({ op: v.op, ep: v.ep, estado: v.estado });
+  }
+
+  // Ordenar por EP luego OP
+  const cmpEP = (a, b) => a.ep.localeCompare(b.ep) || a.op.localeCompare(b.op);
+  nuevas.sort(cmpEP);
+  eliminadas.sort(cmpEP);
+
+  // Resumen por EP
+  const epResumen = new Map();
+  const getEPR = ep => {
+    if (!epResumen.has(ep)) epResumen.set(ep, { nuevas: 0, eliminadas: 0 });
+    return epResumen.get(ep);
+  };
+  for (const r of nuevas)     getEPR(r.ep || '(sin EP)').nuevas++;
+  for (const r of eliminadas) getEPR(r.ep || '(sin EP)').eliminadas++;
+  const epsR = [...epResumen.keys()].sort();
+
+  const totalCambios = nuevas.length + eliminadas.length;
+  setPill('p3pill', totalCambios, '0 cambios');
+
+  // Summary cards
+  document.getElementById('p3summary').innerHTML =
+    summaryCard(mapNuevo.size, 'OPs en Gantt reciente') +
+    summaryCard(mapViejo.size, 'OPs en Gantt anterior') +
+    summaryCard(nuevas.length, 'OPs Nuevas', nuevas.length ? 'warning' : '') +
+    summaryCard(eliminadas.length, 'OPs Eliminadas', eliminadas.length ? 'danger' : '');
+
+  // Tabla resumen por EP
+  const elEP = document.getElementById('p3ep');
+  if (epsR.length === 0) {
+    elEP.innerHTML = emptyOK('Sin cambios entre ambos Gantts.');
+  } else {
+    let html = `<table><thead><tr>
+      <th>EP</th>
+      <th class="center">OPs Nuevas</th>
+      <th class="center">OPs Eliminadas</th>
+    </tr></thead><tbody>`;
+    let totN=0, totE=0;
+    for (const ep of epsR) {
+      const r = epResumen.get(ep);
+      totN += r.nuevas; totE += r.eliminadas;
+      html += `<tr>
+        <td class="mono"><strong>${ep}</strong></td>
+        <td class="center">${r.nuevas > 0 ? `<span class="badge-estado badge-nueva">+${r.nuevas}</span>` : '—'}</td>
+        <td class="center">${r.eliminadas > 0 ? `<span class="badge-estado badge-eliminada">-${r.eliminadas}</span>` : '—'}</td>
+      </tr>`;
+    }
+    html += `<tr style="background:#e0e7ff;font-weight:700;">
+      <td>TOTAL</td>
+      <td class="center">${totN > 0 ? `<span class="badge-estado badge-nueva">+${totN}</span>` : '0'}</td>
+      <td class="center">${totE > 0 ? `<span class="badge-estado badge-eliminada">-${totE}</span>` : '0'}</td>
+    </tr>`;
+    html += '</tbody></table>';
+    elEP.innerHTML = html;
+  }
+
+  // Listado de OPs
+  const elOPs = document.getElementById('p3ops');
+  if (nuevas.length === 0 && eliminadas.length === 0) {
+    elOPs.innerHTML = emptyOK('No hay OPs nuevas ni eliminadas entre ambos Gantts.');
+    return;
+  }
+
+  // Combinar: nuevas primero, luego eliminadas, ordenadas por EP
+  const todas = [
+    ...nuevas.map(r => ({ ...r, tipo: 'Nueva' })),
+    ...eliminadas.map(r => ({ ...r, tipo: 'Eliminada' }))
+  ].sort(cmpEP);
+
+  let html = `<table><thead><tr>
+    <th>EP</th><th>OP</th><th>Estado (en su Gantt)</th><th class="center">Cambio</th>
+  </tr></thead><tbody>`;
+  for (const r of todas) {
+    const cls = r.tipo === 'Nueva' ? 'nueva' : 'eliminada';
+    const badge = `<span class="badge-estado badge-${cls}">${r.tipo === 'Nueva' ? '+ Nueva' : '− Eliminada'}</span>`;
+    html += `<tr class="${r.tipo === 'Eliminada' ? 'error-row' : ''}">
+      <td class="mono">${r.ep || '(sin EP)'}</td>
+      <td class="mono">${r.op}</td>
+      <td>${r.estado || '—'}</td>
+      <td class="center">${badge}</td>
+    </tr>`;
+  }
   html += '</tbody></table>';
-  el2.innerHTML = html;
+  elOPs.innerHTML = html;
 }
 
 /* =====================================================================
