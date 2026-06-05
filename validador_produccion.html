@@ -367,15 +367,8 @@ function readSheet(wb, sheetName) {
   return { rows, headers, sheetName };
 }
 
-// Detecta si un valor de celda del Gantt corresponde al estado #N/D (EPGN).
-// Excel lo puede devolver como "#N/D" (ES), "#N/A" (EN), "#N/A" con espacios, etc.
-function esND(val) {
-  const v = normCmp(val);  // sin espacios, minúsculas
-  return v === '#n/d' || v === '#n/a' || v === '#nd' || v === '#na';
-}
-
 function normEstadoGantt(e) {
-  return esND(e) ? '#N/D' : e;
+  return e;
 }
 
 /* =====================================================================
@@ -586,7 +579,7 @@ function paso1_GanttVsExplosion() {
     const estadoN = norm(g.estado);
     let tipoGantt = null;
     if (estadoN === 'aprobado') tipoGantt = 'OPFI';
-    else if (esND(g.estado)) tipoGantt = 'EPGN';
+    else if (estadoN === 'epgn') tipoGantt = 'EPGN';
     else if (estadoN === 'cumplido') continue; // Cumplido no cuenta en tabla comparativa
     if (tipoGantt) getEP(ep)[tipoGantt].gantt++;
   }
