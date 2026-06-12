@@ -162,7 +162,7 @@
       <div class="stat bad"><div class="n" id="rPlat">0</div><div class="l">En plataforma, no en carta</div></div>
       <div class="stat bad"><div class="n" id="rCarta">0</div><div class="l">En carta, no en plataforma</div></div>
       <div class="stat flag"><div class="n" id="rDiv">0</div><div class="l">Partida divergente</div></div>
-      <div class="stat good"><div class="n" id="rBoth">0</div><div class="l">Cartas conciliadas</div></div>
+      <div class="stat good"><div class="n" id="rBoth">0</div><div class="l">Proveedores conciliados</div></div>
     </div>
     <div class="callout" id="reconCover"></div>
     <div class="tablewrap" id="reconTableWrap">
@@ -366,63 +366,72 @@ async function parsePlatform(file){
 
 function reconcile(){
   if(!platformRecords || !allRows.length){ return; }
-  // Diagnóstico: mostrar claves detectadas en ambas fuentes
-  const pdfConsecs=[...new Set(allRows.map(r=>normConsec(r.aff)).filter(Boolean))].sort();
-  const platConsecs=[...new Set(platformRecords.map(r=>r.consec).filter(Boolean))].sort().slice(0,30);
-  const matched=pdfConsecs.filter(c=>platConsecs.includes(c));
+
+  const normNit = x => String(x||"").replace(/\D/g,"");
+
+  // Índice de la base consolidada: NIT|item → fila PDF
+  const pdfMap = new Map();
+  const pdfNits = new Set();
+  allRows.forEach(r=>{
+    const nit=normNit(r.nit); if(!nit) return;
+    pdfNits.add(nit);
+    const k=nit+"|"+normItem(r.item);
+    if(!pdfMap.has(k)) pdfMap.set(k,r);
+  });
+
+  // Índice del export de plataforma: NIT|item → registro plataforma
+  const platMap = new Map();
+  platformRecords.forEach(p=>{
+    const nit=normNit(p.nit); if(!nit) return;
+    platMap.set(nit+"|"+p.item, p);
+  });
+
+  // Solo comparar proveedores presentes en los PDFs
+  const platParaNits = platformRecords.filter(p=>pdfNits.has(normNit(p.nit)));
+  const nitsConciliados = new Set(platParaNits.map(p=>normNit(p.nit)));
+  const nitsSinPlat = [...pdfNits].filter(n=>!nitsConciliados.has(n));
+
+  // Diagnóstico
   const diagLines=[
-    `Nros. de affidavit detectados en PDFs (${pdfConsecs.length}): ${pdfConsecs.join(", ")||"— ninguno —"}`,
+    `NITs detectados en PDFs (${pdfNits.size}): ${[...pdfNits].join(", ")||"— ninguno —"}`,
+    `NITs con datos en plataforma: ${nitsConciliados.size} → ${[...nitsConciliados].join(", ")||"ninguno"}`,
+    nitsSinPlat.length ? `⚠ NITs en PDFs SIN datos en plataforma: ${nitsSinPlat.join(", ")} — verifica que el export incluya estos proveedores.` : ``,
     ``,
-    `Consecutivos en plataforma (primeros 30 de ${new Set(platformRecords.map(r=>r.consec).filter(Boolean)).size}): ${platConsecs.join(", ")||"— ninguno —"}`,
-    ``,
-    `Coincidencias: ${matched.length} → ${matched.join(", ")||"ninguna"}`,
-    ``,
-    matched.length===0 && pdfConsecs.length===0
-      ? `⚠ Los PDFs no tienen número de affidavit reconocido. Busca en el PDF el texto exacto junto a la clave (ej: "AFFIDAVIT C-002-26") y avisa para ajustar el patrón.`
-      : matched.length===0
-      ? `⚠ Los formatos no coinciden. PDF tiene "${pdfConsecs[0]||"?"}" vs plataforma tiene "${platConsecs[0]||"?"}". Verifica que el consecutivo en el PDF sea igual al de la columna "Consecutivo Carta" del Excel.`
-      : ``
-  ];
+    `Ítems PDF sin NIT detectado (no conciliados): ${allRows.filter(r=>!normNit(r.nit)).length}`,
+  ].filter(Boolean);
   $("diagMsg").textContent=diagLines.join("\n");
   $("diagBlock").classList.remove("hide");
-  const pdfByConsec=new Map();
+
+  const soloPlat=[],soloCarta=[],soloPdf=[],partidaDiv=[];
+
+  // En plataforma (para los NITs de los PDFs) pero no en la base consolidada
+  platParaNits.forEach(p=>{
+    const nit=normNit(p.nit);
+    if(!pdfMap.has(nit+"|"+p.item))
+      soloPlat.push({consec:p.consec,item:p.item,desc:p.desc,frac:p.frac,prov:p.prov});
+  });
+
+  // En base consolidada pero no en plataforma, o con fracción divergente
   allRows.forEach(r=>{
-    const c=normConsec(r.aff); if(!c) return;
-    if(!pdfByConsec.has(c)) pdfByConsec.set(c,new Map());
-    pdfByConsec.get(c).set(normItem(r.item), r);
-  });
-  const platByConsec=new Map();
-  platformRecords.forEach(p=>{
-    if(!p.consec) return;
-    if(!platByConsec.has(p.consec)) platByConsec.set(p.consec,{items:new Map(),prov:p.prov});
-    platByConsec.get(p.consec).items.set(p.item,p);
-  });
-  const soloPlat=[],soloCarta=[],soloPdf=[],partidaDiv=[],cartasSoloPlat=[],cartasSoloPdf=[];
-  let both=0;
-  new Set([...pdfByConsec.keys(),...platByConsec.keys()]).forEach(c=>{
-    const inP=pdfByConsec.has(c), inL=platByConsec.has(c);
-    if(inP && inL){
-      both++;
-      const pdfI=pdfByConsec.get(c), platI=platByConsec.get(c).items, prov=platByConsec.get(c).prov;
-      platI.forEach((p,item)=>{ if(!pdfI.has(item)) soloPlat.push({consec:c,item,desc:p.desc,frac:p.frac,prov}); });
-      pdfI.forEach((r,item)=>{
-        if(!platI.has(item)) soloCarta.push({consec:c,item,desc:r.desc,frac:r.frac,prov:r.empresa,fuente:r.fuente,origen:r.origen});
-        else{
-          const p=platI.get(item);
-          if(r.origen!=="OCR" && p.frac && r.frac && fracDigits(p.frac)!==fracDigits(r.frac))
-            partidaDiv.push({consec:c,item,desc:r.desc,fracCarta:r.frac,fracPlat:p.frac,prov:r.empresa});
-        }
-      });
-    } else if(inL){ cartasSoloPlat.push({consec:c,prov:platByConsec.get(c).prov,n:platByConsec.get(c).items.size}); }
-    else {
-      // Carta en PDF sin ningún registro en plataforma — listar cada ítem
-      const any=[...pdfByConsec.get(c).values()][0];
-      cartasSoloPdf.push({consec:c,prov:any?any.empresa:"",n:pdfByConsec.get(c).size});
-      pdfByConsec.get(c).forEach((r,item)=>{
-        soloPdf.push({consec:c,item,desc:r.desc,frac:r.frac,prov:r.empresa,fuente:r.fuente,origen:r.origen});
-      });
+    const nit=normNit(r.nit); if(!nit) return;
+    const p=platMap.get(nit+"|"+normItem(r.item));
+    if(!p){
+      soloCarta.push({consec:normConsec(r.aff)||"—",item:r.item,desc:r.desc,frac:r.frac,prov:r.empresa,fuente:r.fuente,origen:r.origen});
+    } else if(r.origen!=="OCR" && p.frac && r.frac && fracDigits(p.frac)!==fracDigits(r.frac)){
+      partidaDiv.push({consec:p.consec,item:r.item,desc:r.desc,fracCarta:r.frac,fracPlat:p.frac,prov:r.empresa});
     }
   });
+
+  const both=nitsConciliados.size;
+  // cartasSoloPdf: consecutivos detectados en PDFs que no aparecen en plataforma (informativo)
+  const pdfConsecs=[...new Set(allRows.map(r=>normConsec(r.aff)).filter(Boolean))];
+  const platConsecs=new Set(platformRecords.map(r=>r.consec).filter(Boolean));
+  const cartasSoloPdf=pdfConsecs.filter(c=>!platConsecs.has(c)).map(c=>{
+    const items=allRows.filter(r=>normConsec(r.aff)===c);
+    return {consec:c,prov:items[0]?.empresa||"",n:items.length};
+  });
+  const cartasSoloPlat=[];
+
   reconResults={soloPlat,soloCarta,soloPdf,partidaDiv,cartasSoloPlat,cartasSoloPdf,both};
   renderRecon();
 }
@@ -441,8 +450,8 @@ function renderRecon(){
     cov.push(`<b>${R.cartasSoloPdf.length}</b> carta(s) en PDF sin ningún registro en plataforma: ${detalle}. ⚠ Verifica que el export esté actualizado o que los ítems hayan sido activados.`);
   }
   $("reconCover").innerHTML = cov.length
-    ? `<b>Atención:</b> ${cov.join(" ")} Los hallazgos de conciliación por ítem cubren las ${R.both} carta(s) presentes en ambas fuentes.`
-    : `Las ${R.both} carta(s) están en ambas fuentes; conciliación completa.`;
+    ? `<b>Atención:</b> ${cov.join(" ")} Los hallazgos cubren los ${R.both} proveedor(es) con datos en ambas fuentes.`
+    : `${R.both} proveedor(es) conciliados — todos los ítems cruzados por NIT + código.`;
 
   const rows=[];
   R.soloPlat.forEach(x=>rows.push(["p","En plataforma, no en carta",x.consec,x.prov,x.item,x.desc,x.frac,"Revisar si fue creado por error en plataforma"]));
