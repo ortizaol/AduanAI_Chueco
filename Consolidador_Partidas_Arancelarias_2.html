@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consolidador de Partidas Arancelarias · Busscar</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<style>
+  :root{
+    --ink:#0d1b2a; --ink2:#14283f; --paper:#f6f4ef; --line:#d9d4c9;
+    --steel:#5a6b7e; --steel2:#8a97a6; --amber:#c47f17; --amber-bg:#fbf0d8;
+    --green:#2f6f4f; --red:#b1442e; --purple:#7a5cc4; --white:#ffffff;
+    --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:var(--sans);color:var(--ink);background:var(--paper);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 24px 64px}
+  header.top{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--steel);margin:0}
+  h1{font-size:30px;line-height:1.1;margin:6px 0 4px;font-weight:680;letter-spacing:-.01em}
+  .sub{color:var(--steel);font-size:14px;margin:0;max-width:64ch}
+  .sectlabel{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--steel);margin:30px 0 10px;display:flex;align-items:center;gap:10px}
+  .sectlabel::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .drop{border:1.5px dashed var(--steel2);background:var(--white);border-radius:4px;padding:34px 28px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;position:relative}
+  .drop:hover,.drop:focus-visible{border-color:var(--ink);outline:none}
+  .drop.drag{border-color:var(--ink);background:#fffdf8}
+  .drop .glyph{font-family:var(--mono);font-size:13px;color:var(--steel);letter-spacing:.1em}
+  .drop .big{font-size:17px;font-weight:600;margin:10px 0 4px}
+  .drop .hint{font-size:13px;color:var(--steel)}
+  input[type=file]{display:none}
+  .or{display:inline-block;margin:14px 0 0;font-size:12px;color:var(--steel2)}
+  .btns{display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+  button{font-family:var(--sans);font-size:14px;border-radius:3px;cursor:pointer;border:1px solid var(--ink);padding:9px 16px;transition:.12s}
+  button.ghost{background:var(--white);color:var(--ink)}
+  button.ghost:hover{background:var(--ink);color:var(--white)}
+  button.solid{background:var(--ink);color:var(--white)}
+  button.solid:hover{background:var(--ink2)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .ocrtoggle{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;font-size:13px;color:var(--steel)}
+  .ocrtoggle input{width:16px;height:16px;accent-color:var(--ink)}
+
+  /* tarjeta plataforma */
+  .plat{margin-top:12px;background:var(--white);border:1px solid var(--line);border-radius:4px;padding:16px 18px}
+  .platrow{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+  .plat-t{font-weight:600;margin:0;font-size:15px}
+  .plat-s{margin:2px 0 0;font-size:13px;color:var(--steel);max-width:62ch}
+  .plat-st{margin-top:10px;font-family:var(--mono);font-size:12px;color:var(--green)}
+  .plat-st.warn{color:var(--amber)} .plat-st.err{color:var(--red)}
+
+  .panel{margin-top:18px;background:var(--white);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .panel.hide,.hide{display:none}
+  .bar{height:3px;background:var(--line)}
+  .bar > i{display:block;height:100%;width:0;background:var(--ink);transition:width .25s}
+  .filelist{max-height:200px;overflow:auto;font-family:var(--mono);font-size:12px}
+  .filerow{display:flex;justify-content:space-between;padding:7px 16px;border-bottom:1px solid #eee;color:var(--steel);gap:12px}
+  .filerow:last-child{border-bottom:none}
+  .filerow .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filerow .st{font-size:11px;white-space:nowrap}
+  .st.ok{color:var(--green)} .st.work{color:var(--amber)} .st.err{color:var(--red)} .st.ocr{color:var(--purple)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:18px}
+  .stat{background:var(--white);padding:15px 16px}
+  .stat .n{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1}
+  .stat .l{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--steel);margin-top:6px}
+  .stat.flag .n,.stat.dup .n{color:var(--amber)} .stat.ocr .n{color:var(--purple)}
+  .stat.bad .n{color:var(--red)} .stat.good .n{color:var(--green)}
+
+  .tablewrap{margin-top:18px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--white)}
+  .tabbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);gap:12px;flex-wrap:wrap}
+  .tabbar h2{font-size:13px;margin:0;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
+  .scroll{max-height:440px;overflow:auto}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{position:sticky;top:0;background:var(--ink);color:var(--white);text-align:left;padding:8px 10px;font-weight:600;font-size:11px;letter-spacing:.04em;white-space:nowrap}
+  td{padding:7px 10px;border-bottom:1px solid #eee;vertical-align:top}
+  td.code{font-family:var(--mono);white-space:nowrap}
+  tr.flagged td{background:var(--amber-bg)}
+  tr.ocrrow td{background:#f1ecfa}
+  .obs{font-family:var(--mono);font-size:11px;color:var(--amber)}
+  .tag{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:2px;white-space:nowrap}
+  .tag.t{background:#e6efe9;color:var(--green)} .tag.o{background:#ece4fb;color:var(--purple)}
+  .tag.p{background:#fbe7e1;color:var(--red)} .tag.c{background:#e1ecfb;color:#2f5b9e} .tag.d{background:var(--amber-bg);color:var(--amber)}
+  .note{font-size:12px;color:var(--steel);padding:10px 16px;border-top:1px solid var(--line)}
+  .callout{margin-top:16px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:4px;padding:12px 16px;font-size:13px;color:var(--ink2)}
+  .callout b{color:var(--ink)}
+  .err-box{margin-top:20px;background:#fdeeee;border:1px solid #e6b3b3;border-radius:4px;padding:12px 16px;font-size:13px;color:#902;display:none}
+  footer{margin-top:40px;border-top:1px solid var(--line);padding-top:16px;font-size:12px;color:var(--steel2);font-family:var(--mono)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Comercio Exterior · Affidavits de origen</p>
+    <h1>Consolidador de Partidas Arancelarias</h1>
+    <p class="sub">Extrae descriptor · ítem · fracción de los affidavits en PDF (texto o escaneados), valida, y opcionalmente concilia contra el listado de la plataforma para detectar ítems creados sin carta o cartas sin crear.</p>
+  </header>
+
+  <div class="sectlabel">1 · Affidavits en PDF</div>
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Seleccionar o arrastrar PDFs">
+    <p class="glyph">[ PDF ]</p>
+    <p class="big">Arrastra los PDF aquí — o una carpeta completa</p>
+    <p class="hint">Acepta varios archivos a la vez. Solo procesa .pdf</p>
+    <span class="or">también puedes</span>
+    <div class="btns">
+      <button class="ghost" id="pickFiles" type="button">Elegir archivos</button>
+      <button class="ghost" id="pickDir" type="button">Elegir carpeta</button>
+    </div>
+    <label class="ocrtoggle"><input type="checkbox" id="ocrOn" checked> Leer PDF escaneados con OCR (más lento, requiere internet la primera vez)</label>
+    <input type="file" id="files" accept="application/pdf" multiple>
+    <input type="file" id="dir" webkitdirectory directory multiple>
+  </div>
+
+  <div class="sectlabel">2 · Listado de plataforma · opcional</div>
+  <div class="plat" id="platCard">
+    <div class="platrow">
+      <div>
+        <p class="plat-t">Conciliación cruzada plataforma ↔ carta</p>
+        <p class="plat-s">Carga el Excel/TSV exportado de Busscar (ítems registrados por carta). Cruza por Consecutivo Carta + Código Item UnoEE para detectar ítems en plataforma que no están en la carta, y al revés.</p>
+      </div>
+      <button class="ghost" id="pickPlat" type="button">Cargar listado</button>
+    </div>
+    <div class="plat-st" id="platSt"></div>
+    <input type="file" id="platFile" accept=".xls,.xlsx,.csv,.tsv,text/plain">
+  </div>
+
+  <div class="err-box" id="errBox"></div>
+
+  <div class="panel hide" id="progPanel">
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="filelist" id="fileList"></div>
+  </div>
+
+  <div class="stats hide" id="stats">
+    <div class="stat"><div class="n" id="sFiles">0</div><div class="l">Documentos</div></div>
+    <div class="stat"><div class="n" id="sRows">0</div><div class="l">Registros</div></div>
+    <div class="stat ocr"><div class="n" id="sOcr">0</div><div class="l">Vía OCR</div></div>
+    <div class="stat dup"><div class="n" id="sDup">0</div><div class="l">Duplicados</div></div>
+    <div class="stat flag"><div class="n" id="sFlag">0</div><div class="l">Para revisar</div></div>
+  </div>
+
+  <div class="callout hide" id="ocrNote">
+    <b>Atención OCR:</b> hay registros de PDF escaneados. El OCR puede confundir dígitos (3↔2, 6↔£) y eso altera la clasificación. <b>Toda fila «OCR» queda marcada para revisión y debe verificarse contra el escaneo.</b>
+  </div>
+
+  <!-- DIAGNÓSTICO DE CLAVES -->
+  <div class="hide" id="diagBlock">
+    <div class="sectlabel">Diagnóstico de claves detectadas</div>
+    <div class="callout" id="diagMsg" style="font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-all"></div>
+  </div>
+
+  <!-- CONCILIACIÓN -->
+  <div class="hide" id="reconBlock">
+    <div class="sectlabel">Conciliación plataforma ↔ carta</div>
+    <div class="stats" id="reconStats">
+      <div class="stat bad"><div class="n" id="rPlat">0</div><div class="l">En plataforma, no en carta</div></div>
+      <div class="stat bad"><div class="n" id="rCarta">0</div><div class="l">En carta, no en plataforma</div></div>
+      <div class="stat flag"><div class="n" id="rDiv">0</div><div class="l">Partida divergente</div></div>
+      <div class="stat good"><div class="n" id="rBoth">0</div><div class="l">Cartas conciliadas</div></div>
+    </div>
+    <div class="callout" id="reconCover"></div>
+    <div class="tablewrap" id="reconTableWrap">
+      <div class="tabbar"><h2>Hallazgos</h2></div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Tipo</th><th>Consecutivo</th><th>Proveedor</th><th>Item</th><th>Descripción</th><th>Partida</th><th>Detalle</th></tr></thead>
+          <tbody id="reconBody"></tbody>
+        </table>
+      </div>
+      <div class="note" id="reconNote"></div>
+    </div>
+  </div>
+
+  <!-- VISTA PREVIA BASE -->
+  <div class="tablewrap hide" id="tableWrap">
+    <div class="tabbar">
+      <h2>Base consolidada</h2>
+      <button class="solid" id="download" disabled>Descargar Excel</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Empresa</th><th>Item</th><th>Descripción</th><th>Partida</th><th>Fuente</th><th>Origen</th><th>Observaciones</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="note" id="previewNote"></div>
+  </div>
+
+  <footer>Busscar de Colombia · Cadena de Abastecimiento — procesamiento local, sin envío de datos</footer>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const STRICT = /^(.*?)\s+(\d{3,6})\s+(\d{4}\.\d{2}\.\d{2}\.\d{2})\s*$/;
+const TOLERANT = /^(.*?)\s+(\d{3,6})\s+([\dOoIl£.,\s]{6,})$/;
+const AFF = /AFFIDAVIT(?:\s+(?:DE\s+ORIGEN|N[o°º.]*))*\s*[:\-]?\s*([A-Z]-\d+-\d+)/i;
+const EMP = /en representaci[oó]n de\s+(.+?),?\s+identificada/i;
+
+const $ = id => document.getElementById(id);
+const drop = $("drop"), errBox = $("errBox");
+let allRows = [];
+let ocrWorker = null;
+let platformRecords = null;
+let reconResults = null;
+
+function showErr(m){ errBox.style.display="block"; errBox.textContent=m; }
+function clearErr(){ errBox.style.display="none"; errBox.textContent=""; }
+function esc(s){ return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+const normItem  = x => String(x??"").trim().replace(/^0+/,"");
+const normConsec= x => String(x??"").toUpperCase().replace(/\s+/g,"");
+const fracDigits= f => String(f??"").replace(/\D/g,"");
+const normKey   = s => String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+
+function reconstructLines(tc){
+  const buckets=[];
+  for(const it of tc.items){
+    if(!it.str || !it.str.trim()) continue;
+    const y=it.transform[5];
+    let b=buckets.find(k=>Math.abs(k.y-y)<=2.2);
+    if(!b){ b={y,items:[]}; buckets.push(b); }
+    b.items.push(it);
+  }
+  buckets.sort((a,b)=>b.y-a.y);
+  return buckets.map(b=>{
+    b.items.sort((a,b)=>a.transform[4]-b.transform[4]);
+    return b.items.map(i=>i.str).join(" ").replace(/\s+/g," ").trim();
+  }).filter(Boolean);
+}
+async function renderCanvas(page,scale){
+  const vp=page.getViewport({scale});
+  const c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height;
+  await page.render({canvasContext:c.getContext("2d"),viewport:vp}).promise; return c;
+}
+async function getWorker(){ if(ocrWorker) return ocrWorker; ocrWorker=await Tesseract.createWorker("spa"); return ocrWorker; }
+function normFrac(raw){
+  let s=String(raw).replace(/[Oo]/g,"0").replace(/[Il]/g,"1");
+  const d=s.replace(/\D/g,"");
+  if(d.length===10) return {frac:`${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}.${d.slice(8,10)}`,ok:true};
+  return {frac:raw.trim(),ok:false};
+}
+function getHeaders(flat,fname){
+  const me=EMP.exec(flat);
+  let nm=/identificada con NIT[.\s]*([\d.,\s\-]{6,})/i.exec(flat)||/NIT[.\s]*([\d.,\s\-]{6,})/i.exec(flat);
+  const nit=nm? nm[1].replace(/[^\d]/g,"").slice(0,10):"";
+  const ma=AFF.exec(flat);
+  return {empresa: me? me[1].replace(/\s+/g," ").trim():fname, nit, aff: ma? ma[1]:""};
+}
+
+async function processFile(file,ocrEnabled,onPage){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const textLines=[], ocrLines=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const tc=await page.getTextContent();
+    const lines=reconstructLines(tc);
+    const alnum=lines.join("").replace(/[^A-Za-z0-9]/g,"").length;
+    if(alnum<25){
+      if(ocrEnabled){
+        onPage(p,"ocr");
+        const canvas=await renderCanvas(page,2.6);
+        const {data}=await (await getWorker()).recognize(canvas);
+        ocrLines.push(...data.text.split("\n").map(s=>s.trim()).filter(Boolean));
+      }
+    }else{ onPage(p,"text"); textLines.push(...lines); }
+  }
+  const flat=textLines.concat(ocrLines).join(" ").replace(/\s+/g," ");
+  const h=getHeaders(flat,file.name);
+  const rows=[];
+  for(let ln of textLines){
+    const m=STRICT.exec(ln.trim());
+    if(m && m[1].trim()) rows.push({empresa:h.empresa,nit:h.nit,aff:h.aff,item:m[2],desc:m[1].replace(/\s+/g," ").trim(),frac:m[3],fuente:file.name,origen:"Texto"});
+  }
+  for(let ln of ocrLines){
+    const m=TOLERANT.exec(ln.trim());
+    if(m && m[1].trim()){ const n=normFrac(m[3]); rows.push({empresa:h.empresa,nit:h.nit,aff:h.aff,item:m[2],desc:m[1].replace(/\s+/g," ").trim(),frac:n.frac,fuente:file.name,origen:"OCR",fracOk:n.ok}); }
+  }
+  return rows;
+}
+
+function validate(rows){
+  const fracByKey=new Map();
+  rows.forEach(r=>{const k=r.empresa+"|"+r.item; if(!fracByKey.has(k))fracByKey.set(k,new Set()); fracByKey.get(k).add(r.frac);});
+  const seen=new Map();
+  rows.forEach(r=>{
+    const k=r.empresa+"|"+r.item; seen.set(k,(seen.get(k)||0)+1);
+    const obs=[];
+    if(r.origen==="OCR") obs.push("REVISAR (OCR — verificar ítem y partida)");
+    if(r.origen==="OCR" && r.fracOk===false) obs.push("Partida con formato dudoso");
+    if(seen.get(k)>1) obs.push("DUPLICADO (ítem repetido)");
+    if(fracByKey.get(k).size>1) obs.push("REVISAR (ítem con partidas distintas)");
+    if(!r.frac){ r.frac="NO IDENTIFICADA"; obs.push("REVISAR"); }
+    r.obs=obs.join(" | ");
+  });
+  return rows;
+}
+
+/* ---------- Plataforma ---------- */
+async function parsePlatform(file){
+  const buf=await file.arrayBuffer();
+  const bytes=new Uint8Array(buf);
+  let wb;
+  if(bytes[0]===0x50 && bytes[1]===0x4B){ wb=XLSX.read(buf,{type:"array"}); }
+  else {
+    // Detectar codificaci\u00F3n: intentar UTF-8, caer a latin-1 si hay muchos reemplazos
+    let text=new TextDecoder("utf-8",{fatal:false}).decode(buf);
+    if((text.match(/\uFFFD/g)||[]).length>5) text=new TextDecoder("iso-8859-1").decode(buf);
+    // Detectar si es TSV (delimitado por tabuladores) o CSV
+    const firstLine=(text.split(/\r?\n/)[0]||"");
+    const tabCount=(firstLine.match(/\t/g)||[]).length;
+    const commaCount=(firstLine.match(/,/g)||[]).length;
+    const opts={type:"string"};
+    if(tabCount>commaCount) opts.FS="\t";
+    wb=XLSX.read(text,opts);
+  }
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+  if(!aoa.length) throw new Error("El archivo está vacío.");
+  const head=aoa[0].map(normKey);
+  const find=pred=>head.findIndex(pred);
+  const ci={
+    consec: find(h=>h.includes("consecutivo")),
+    item:   find(h=>h.includes("unoee") && !h.includes("descripcion")),
+    desc:   find(h=>h.includes("descripcion") && h.includes("unoee")),
+    frac:   find(h=>h.includes("fraccion")||h.includes("arancel")),
+    nit:    find(h=>h.includes("documento")),
+    prov:   find(h=>h.includes("nombreproveedor")||(h.includes("nombre")&&h.includes("prov"))),
+  };
+  if(ci.consec<0 || ci.item<0) throw new Error("No encuentro «Consecutivo Carta» y/o «Codigo Item UnoEE». Encabezados detectados: "+aoa[0].join(" | "));
+  const v=(r,i)=> i>=0? String(r[i]??"").trim():"";
+  const recs=[];
+  for(let i=1;i<aoa.length;i++){
+    const r=aoa[i]; if(!r||!r.length) continue;
+    const item=normItem(r[ci.item]); const consec=normConsec(r[ci.consec]);
+    if(!item && !consec) continue;
+    recs.push({consec,item,desc:v(r,ci.desc),frac:v(r,ci.frac),nit:v(r,ci.nit),prov:v(r,ci.prov)});
+  }
+  return recs;
+}
+
+function reconcile(){
+  if(!platformRecords || !allRows.length){ return; }
+  // Diagnóstico: mostrar claves detectadas en ambas fuentes
+  const pdfConsecs=[...new Set(allRows.map(r=>normConsec(r.aff)).filter(Boolean))].sort();
+  const platConsecs=[...new Set(platformRecords.map(r=>r.consec).filter(Boolean))].sort().slice(0,30);
+  const matched=pdfConsecs.filter(c=>platConsecs.includes(c));
+  const diagLines=[
+    `Nros. de affidavit detectados en PDFs (${pdfConsecs.length}): ${pdfConsecs.join(", ")||"— ninguno —"}`,
+    ``,
+    `Consecutivos en plataforma (primeros 30 de ${new Set(platformRecords.map(r=>r.consec).filter(Boolean)).size}): ${platConsecs.join(", ")||"— ninguno —"}`,
+    ``,
+    `Coincidencias: ${matched.length} → ${matched.join(", ")||"ninguna"}`,
+    ``,
+    matched.length===0 && pdfConsecs.length===0
+      ? `⚠ Los PDFs no tienen número de affidavit reconocido. Busca en el PDF el texto exacto junto a la clave (ej: "AFFIDAVIT C-002-26") y avisa para ajustar el patrón.`
+      : matched.length===0
+      ? `⚠ Los formatos no coinciden. PDF tiene "${pdfConsecs[0]||"?"}" vs plataforma tiene "${platConsecs[0]||"?"}". Verifica que el consecutivo en el PDF sea igual al de la columna "Consecutivo Carta" del Excel.`
+      : ``
+  ];
+  $("diagMsg").textContent=diagLines.join("\n");
+  $("diagBlock").classList.remove("hide");
+  const pdfByConsec=new Map();
+  allRows.forEach(r=>{
+    const c=normConsec(r.aff); if(!c) return;
+    if(!pdfByConsec.has(c)) pdfByConsec.set(c,new Map());
+    pdfByConsec.get(c).set(normItem(r.item), r);
+  });
+  const platByConsec=new Map();
+  platformRecords.forEach(p=>{
+    if(!p.consec) return;
+    if(!platByConsec.has(p.consec)) platByConsec.set(p.consec,{items:new Map(),prov:p.prov});
+    platByConsec.get(p.consec).items.set(p.item,p);
+  });
+  const soloPlat=[],soloCarta=[],partidaDiv=[],cartasSoloPlat=[],cartasSoloPdf=[];
+  let both=0;
+  new Set([...pdfByConsec.keys(),...platByConsec.keys()]).forEach(c=>{
+    const inP=pdfByConsec.has(c), inL=platByConsec.has(c);
+    if(inP && inL){
+      both++;
+      const pdfI=pdfByConsec.get(c), platI=platByConsec.get(c).items, prov=platByConsec.get(c).prov;
+      platI.forEach((p,item)=>{ if(!pdfI.has(item)) soloPlat.push({consec:c,item,desc:p.desc,frac:p.frac,prov}); });
+      pdfI.forEach((r,item)=>{
+        if(!platI.has(item)) soloCarta.push({consec:c,item,desc:r.desc,frac:r.frac,prov:r.empresa,fuente:r.fuente,origen:r.origen});
+        else{
+          const p=platI.get(item);
+          if(r.origen!=="OCR" && p.frac && r.frac && fracDigits(p.frac)!==fracDigits(r.frac))
+            partidaDiv.push({consec:c,item,desc:r.desc,fracCarta:r.frac,fracPlat:p.frac,prov:r.empresa});
+        }
+      });
+    } else if(inL){ cartasSoloPlat.push({consec:c,prov:platByConsec.get(c).prov,n:platByConsec.get(c).items.size}); }
+    else { const any=[...pdfByConsec.get(c).values()][0]; cartasSoloPdf.push({consec:c,prov:any?any.empresa:"",n:pdfByConsec.get(c).size}); }
+  });
+  reconResults={soloPlat,soloCarta,partidaDiv,cartasSoloPlat,cartasSoloPdf,both};
+  renderRecon();
+}
+
+function renderRecon(){
+  const R=reconResults; if(!R) return;
+  $("rPlat").textContent=R.soloPlat.length;
+  $("rCarta").textContent=R.soloCarta.length;
+  $("rDiv").textContent=R.partidaDiv.length;
+  $("rBoth").textContent=R.both;
+  const cov=[];
+  if(R.cartasSoloPlat.length) cov.push(`${R.cartasSoloPlat.length} carta(s) en plataforma sin PDF cargado (no conciliadas — cárgalas para auditarlas).`);
+  if(R.cartasSoloPdf.length)  cov.push(`${R.cartasSoloPdf.length} carta(s) en PDF sin registro en plataforma.`);
+  $("reconCover").innerHTML = cov.length
+    ? `<b>Cobertura:</b> ${cov.join(" ")} Los hallazgos abajo solo cubren las ${R.both} carta(s) presentes en ambas fuentes.`
+    : `Las ${R.both} carta(s) están en ambas fuentes; conciliación completa.`;
+
+  const rows=[];
+  R.soloPlat.forEach(x=>rows.push(["p","En plataforma, no en carta",x.consec,x.prov,x.item,x.desc,x.frac,"Posible falso positivo en plataforma"]));
+  R.soloCarta.forEach(x=>rows.push(["c","En carta, no en plataforma",x.consec,x.prov,x.item,x.desc,x.frac,(x.origen==="OCR"?"(OCR — confirmar ítem) ":"")+"Crear o vincular en plataforma"]));
+  R.partidaDiv.forEach(x=>rows.push(["d","Partida divergente",x.consec,x.prov,x.item,x.desc,x.fracCarta,"Plataforma: "+x.fracPlat]));
+  const tb=$("reconBody"); tb.innerHTML="";
+  const LIM=400;
+  rows.slice(0,LIM).forEach(r=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td><span class="tag ${r[0]}">${esc(r[1])}</span></td><td class="code">${esc(r[2])}</td><td>${esc(r[3])}</td><td class="code">${esc(r[4])}</td><td>${esc(r[5])}</td><td class="code">${esc(r[6])}</td><td>${esc(r[7])}</td>`;
+    tb.appendChild(tr);
+  });
+  $("reconNote").textContent = rows.length
+    ? (rows.length>LIM? `Mostrando ${LIM} de ${rows.length} hallazgos. El Excel incluye todos.` : `${rows.length} hallazgo(s). Incluidos en el Excel.`)
+    : "Sin discrepancias en las cartas conciliadas.";
+  $("reconBlock").classList.remove("hide");
+}
+
+/* ---------- Carga PDFs ---------- */
+function readEntry(entry,files){
+  return new Promise(res=>{
+    if(entry.isFile){ entry.file(f=>{ if(f.name.toLowerCase().endsWith(".pdf")) files.push(f); res(); },()=>res()); }
+    else if(entry.isDirectory){
+      const rd=entry.createReader(); const acc=[];
+      const batch=()=>rd.readEntries(async ents=>{ if(!ents.length){ for(const e of acc) await readEntry(e,files); res(); } else { acc.push(...ents); batch(); } },()=>res());
+      batch();
+    } else res();
+  });
+}
+
+async function handleFiles(fileArr){
+  clearErr();
+  const pdfs=fileArr.filter(f=>f.name.toLowerCase().endsWith(".pdf"));
+  if(!pdfs.length){ showErr("No encontré archivos PDF. Arrastra affidavits en .pdf o una carpeta que los contenga."); return; }
+  const ocrEnabled=$("ocrOn").checked;
+  allRows=[]; reconResults=null;
+  $("progPanel").classList.remove("hide"); $("fileList").innerHTML=""; $("barFill").style.width="0%";
+  $("stats").classList.add("hide"); $("tableWrap").classList.add("hide"); $("ocrNote").classList.add("hide"); $("reconBlock").classList.add("hide");
+  $("download").disabled=true;
+
+  const rowEls=pdfs.map(f=>{ const el=document.createElement("div"); el.className="filerow";
+    el.innerHTML=`<span class="nm">${esc(f.name)}</span><span class="st work">en cola…</span>`; $("fileList").appendChild(el); return el; });
+
+  let done=0,okCount=0;
+  for(let i=0;i<pdfs.length;i++){
+    const f=pdfs[i], stat=rowEls[i].querySelector(".st");
+    stat.textContent="leyendo…"; stat.className="st work";
+    try{
+      const rows=await processFile(f,ocrEnabled,(pg,mode)=>{ if(mode==="ocr"){ stat.textContent="OCR pág "+pg+"…"; stat.className="st ocr"; }});
+      allRows.push(...rows);
+      const oc=rows.filter(r=>r.origen==="OCR").length;
+      stat.textContent=rows.length+" ítems"+(oc?` (${oc} OCR)`:""); stat.className="st "+(oc?"ocr":"ok"); okCount++;
+    }catch(e){ stat.textContent="error"; stat.className="st err"; console.error(f.name,e); }
+    done++; $("barFill").style.width=Math.round(done/pdfs.length*100)+"%";
+  }
+  if(ocrWorker){ try{ await ocrWorker.terminate(); }catch(e){} ocrWorker=null; }
+  if(!allRows.length){ showErr("Procesé los PDF pero no detecté tablas descriptor · ítem · fracción. Si son escaneados, activa el OCR."); return; }
+  validate(allRows); renderResults(okCount);
+  if(platformRecords) reconcile();
+}
+
+function renderResults(fileCount){
+  const ocr=allRows.filter(r=>r.origen==="OCR").length;
+  const dup=allRows.filter(r=>r.obs.includes("DUPLICADO")).length;
+  const flag=allRows.filter(r=>r.obs.includes("REVISAR")).length;
+  $("sFiles").textContent=fileCount; $("sRows").textContent=allRows.length;
+  $("sOcr").textContent=ocr; $("sDup").textContent=dup; $("sFlag").textContent=flag;
+  $("stats").classList.remove("hide");
+  if(ocr) $("ocrNote").classList.remove("hide");
+
+  const tbody=$("tbody"); tbody.innerHTML=""; const LIMIT=300;
+  allRows.slice(0,LIMIT).forEach(r=>{
+    const tr=document.createElement("tr");
+    tr.className=(r.origen==="OCR"?"ocrrow ":"")+(r.obs?"flagged":"");
+    tr.innerHTML=`<td>${esc(r.empresa)}</td><td class="code">${esc(r.item)}</td><td>${esc(r.desc)}</td><td class="code">${esc(r.frac)}</td><td>${esc(r.fuente)}</td><td><span class="tag ${r.origen==="OCR"?"o":"t"}">${r.origen}</span></td><td class="obs">${esc(r.obs)}</td>`;
+    tbody.appendChild(tr);
+  });
+  $("previewNote").textContent=allRows.length>LIMIT? `Mostrando ${LIMIT} de ${allRows.length} registros. El Excel incluye todos.` : `${allRows.length} registros. El Excel incluye todos.`;
+  $("tableWrap").classList.remove("hide"); $("download").disabled=false;
+}
+
+/* ---------- Excel ---------- */
+function buildXlsx(){
+  const wb=XLSX.utils.book_new();
+  const header=["Empresa","Item","Descripción","Partida arancelaria","Unidad","Cantidad","Fuente","Origen","Observaciones","NIT","N° Affidavit"];
+  const data=allRows.map(r=>[r.empresa,r.item,r.desc,r.frac,"","",r.fuente,r.origen,r.obs,r.nit,r.aff]);
+  const ws=XLSX.utils.aoa_to_sheet([header,...data]);
+  ws["!cols"]=[{wch:26},{wch:10},{wch:70},{wch:18},{wch:9},{wch:10},{wch:26},{wch:10},{wch:36},{wch:14},{wch:14}];
+  ws["!autofilter"]={ref:`A1:K${data.length+1}`}; ws["!freeze"]={xSplit:0,ySplit:1};
+  for(let i=2;i<=data.length+1;i++){ ["B","D","J"].forEach(col=>{ const c=ws[col+i]; if(c){ c.t="s"; c.z="@"; } }); }
+  XLSX.utils.book_append_sheet(wb,ws,"Base Partidas");
+
+  // Resumen
+  const empCount={},fracCount={};
+  allRows.forEach(r=>{ empCount[r.empresa]=(empCount[r.empresa]||0)+1; fracCount[r.frac]=(fracCount[r.frac]||0)+1; });
+  const ocr=allRows.filter(r=>r.origen==="OCR").length;
+  const res=[["RESUMEN DE CONSOLIDACIÓN"],[],["Total registros",allRows.length],["Vía OCR (verificar)",ocr],
+    ["Marcados DUPLICADO",allRows.filter(r=>r.obs.includes("DUPLICADO")).length],
+    ["Marcados REVISAR",allRows.filter(r=>r.obs.includes("REVISAR")).length],[],["Por empresa","Registros"]];
+  Object.entries(empCount).sort().forEach(([e,n])=>res.push([e,n]));
+  const rs=XLSX.utils.aoa_to_sheet(res); rs["!cols"]=[{wch:34},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,rs,"Resumen");
+
+  // Conciliación
+  if(reconResults){
+    const R=reconResults;
+    const con=[["CONCILIACIÓN PLATAFORMA ↔ CARTA"],[],
+      ["Cartas conciliadas (en ambas fuentes)",R.both],
+      ["En plataforma, no en carta (falso positivo)",R.soloPlat.length],
+      ["En carta, no en plataforma",R.soloCarta.length],
+      ["Partidas divergentes",R.partidaDiv.length],
+      ["Cartas en plataforma sin PDF cargado",R.cartasSoloPlat.length],
+      ["Cartas en PDF sin registro en plataforma",R.cartasSoloPdf.length]];
+    const cs=XLSX.utils.aoa_to_sheet(con); cs["!cols"]=[{wch:48},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,cs,"Conciliación");
+
+    const h1=["Consecutivo","Proveedor","Item","Descripción (plataforma)","Partida (plataforma)"];
+    const d1=R.soloPlat.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac]);
+    const s1=XLSX.utils.aoa_to_sheet([h1,...d1]); s1["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18}]; s1["!autofilter"]={ref:`A1:E${d1.length+1}`};
+    XLSX.utils.book_append_sheet(wb,s1,"Solo en plataforma");
+
+    const h2=["Consecutivo","Proveedor","Item","Descripción (carta)","Partida (carta)","Fuente PDF","Origen"];
+    const d2=R.soloCarta.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac,x.fuente,x.origen]);
+    const s2=XLSX.utils.aoa_to_sheet([h2,...d2]); s2["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18},{wch:24},{wch:10}]; s2["!autofilter"]={ref:`A1:G${d2.length+1}`};
+    XLSX.utils.book_append_sheet(wb,s2,"Solo en carta");
+
+    if(R.partidaDiv.length){
+      const h3=["Consecutivo","Proveedor","Item","Descripción","Partida carta","Partida plataforma"];
+      const d3=R.partidaDiv.map(x=>[x.consec,x.prov,x.item,x.desc,x.fracCarta,x.fracPlat]);
+      const s3=XLSX.utils.aoa_to_sheet([h3,...d3]); s3["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:56},{wch:16},{wch:18}]; s3["!autofilter"]={ref:`A1:F${d3.length+1}`};
+      XLSX.utils.book_append_sheet(wb,s3,"Partida divergente");
+    }
+  }
+  XLSX.writeFile(wb,"Base_Datos_Partidas_Arancelarias.xlsx");
+}
+
+/* ---------- Eventos ---------- */
+$("pickFiles").addEventListener("click",e=>{ e.stopPropagation(); $("files").click(); });
+$("pickDir").addEventListener("click",e=>{ e.stopPropagation(); $("dir").click(); });
+$("files").addEventListener("change",e=>handleFiles([...e.target.files]));
+$("dir").addEventListener("change",e=>handleFiles([...e.target.files]));
+$("ocrOn").addEventListener("click",e=>e.stopPropagation());
+drop.addEventListener("click",()=>$("files").click());
+drop.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); $("files").click(); }});
+$("download").addEventListener("click",e=>{ e.stopPropagation(); buildXlsx(); });
+
+$("pickPlat").addEventListener("click",()=>$("platFile").click());
+$("platFile").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const st=$("platSt"); st.className="plat-st warn"; st.textContent="Leyendo "+f.name+"…";
+  try{
+    platformRecords=await parsePlatform(f);
+    const cartas=new Set(platformRecords.map(r=>r.consec).filter(Boolean)).size;
+    st.className="plat-st"; st.textContent=`✓ ${platformRecords.length} ítems · ${cartas} cartas cargadas`;
+    if(allRows.length) reconcile();
+    else { st.textContent+="  — ahora carga los PDF para conciliar"; }
+  }catch(err){ st.className="plat-st err"; st.textContent="✗ "+err.message; platformRecords=null; console.error(err); }
+});
+
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove("drag"); }));
+drop.addEventListener("drop",async e=>{
+  const items=e.dataTransfer.items; const files=[];
+  if(items && items.length && items[0].webkitGetAsEntry){
+    const entries=[...items].map(it=>it.webkitGetAsEntry()).filter(Boolean);
+    for(const en of entries) await readEntry(en,files);
+  } else { files.push(...e.dataTransfer.files); }
+  handleFiles(files);
+});
+</script>
+</body>
+</html>
