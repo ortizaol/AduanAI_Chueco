@@ -244,12 +244,31 @@ function normFrac(raw){
   if(d.length===10) return {frac:`${d.slice(0,4)}.${d.slice(4,6)}.${d.slice(6,8)}.${d.slice(8,10)}`,ok:true};
   return {frac:raw.trim(),ok:false};
 }
+// Patrón de consecutivo: letra-números-números (ej: C-218-25, A-001-26)
+const CONSEC_PAT = /\b([A-Z]-\d{2,4}-\d{2,4})\b/g;
+function extractConsec(text){
+  // 1. Buscar junto a la palabra AFFIDAVIT (con variantes)
+  const ma=AFF.exec(text);
+  if(ma) return ma[1];
+  // 2. Buscar el patrón en las primeras 500 chars (cabecera del documento)
+  const head=text.slice(0,500);
+  const mb=CONSEC_PAT.exec(head);
+  if(mb) return mb[1];
+  return "";
+}
+function extractConsecFromFilename(fname){
+  const m=CONSEC_PAT.exec(fname);
+  return m? m[1]:"";
+}
 function getHeaders(flat,fname){
   const me=EMP.exec(flat);
   let nm=/identificada con NIT[.\s]*([\d.,\s\-]{6,})/i.exec(flat)||/NIT[.\s]*([\d.,\s\-]{6,})/i.exec(flat);
   const nit=nm? nm[1].replace(/[^\d]/g,"").slice(0,10):"";
-  const ma=AFF.exec(flat);
-  return {empresa: me? me[1].replace(/\s+/g," ").trim():fname, nit, aff: ma? ma[1]:""};
+  // Intentar extraer consecutivo del texto; si falla, intentar del nombre de archivo
+  CONSEC_PAT.lastIndex=0;
+  let aff=extractConsec(flat);
+  if(!aff){ CONSEC_PAT.lastIndex=0; aff=extractConsecFromFilename(fname); }
+  return {empresa: me? me[1].replace(/\s+/g," ").trim():fname, nit, aff};
 }
 
 async function processFile(file,ocrEnabled,onPage){
