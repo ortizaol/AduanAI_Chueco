@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.pkl
+*.pyc
+.env
+.streamlit/secrets.toml
+app/.user_profile.json
