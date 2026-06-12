@@ -166,7 +166,7 @@
     </div>
     <div class="callout" id="reconCover"></div>
     <div class="tablewrap" id="reconTableWrap">
-      <div class="tabbar"><h2>Hallazgos</h2></div>
+      <div class="tabbar"><h2>Hallazgos</h2><button class="solid" id="downloadRecon" disabled>Descargar Excel hallazgos</button></div>
       <div class="scroll">
         <table>
           <thead><tr><th>Tipo</th><th>Consecutivo</th><th>Proveedor</th><th>Item</th><th>Descripción</th><th>Partida</th><th>Detalle</th></tr></thead>
@@ -469,6 +469,7 @@ function renderRecon(){
     ? (rows.length>LIM? `Mostrando ${LIM} de ${rows.length} hallazgos. El Excel incluye todos.` : `${rows.length} hallazgo(s). Incluidos en el Excel.`)
     : "Sin discrepancias en las cartas conciliadas.";
   $("reconBlock").classList.remove("hide");
+  $("downloadRecon").disabled=false;
 }
 
 /* ---------- Carga PDFs ---------- */
@@ -556,7 +557,7 @@ function buildXlsx(){
   const rs=XLSX.utils.aoa_to_sheet(res); rs["!cols"]=[{wch:34},{wch:14}];
   XLSX.utils.book_append_sheet(wb,rs,"Resumen");
 
-  // Conciliación
+  // Conciliación (incluida en el Excel principal también)
   if(reconResults){
     const R=reconResults;
     const totalSoloCarta=R.soloCarta.length+R.soloPdf.length;
@@ -599,6 +600,56 @@ function buildXlsx(){
 }
 
 /* ---------- Eventos ---------- */
+function buildReconXlsx(){
+  if(!reconResults) return;
+  const R=reconResults;
+  const wb=XLSX.utils.book_new();
+
+  // Resumen
+  const totalSoloCarta=R.soloCarta.length+R.soloPdf.length;
+  const res=[
+    ["HALLAZGOS DE CONCILIACIÓN PLATAFORMA ↔ CARTAS"],[],
+    ["En plataforma, no en carta (posible falso positivo)",R.soloPlat.length],
+    ["En carta, no en plataforma — ítem omitido",R.soloCarta.length],
+    ["En carta, no en plataforma — carta sin registrar",R.soloPdf.length],
+    ["Total en carta no en plataforma",totalSoloCarta],
+    ["Partidas divergentes",R.partidaDiv.length],
+    ["Proveedores conciliados",R.both],
+  ];
+  const rs=XLSX.utils.aoa_to_sheet(res); rs["!cols"]=[{wch:52},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,rs,"Resumen hallazgos");
+
+  // En plataforma, no en carta
+  if(R.soloPlat.length){
+    const h=["Consecutivo","Proveedor","Item","Descripción (plataforma)","Partida (plataforma)"];
+    const d=R.soloPlat.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac]);
+    const ws=XLSX.utils.aoa_to_sheet([h,...d]); ws["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18}]; ws["!autofilter"]={ref:`A1:E${d.length+1}`};
+    XLSX.utils.book_append_sheet(wb,ws,"En plataforma no en carta");
+  }
+
+  // En carta, no en plataforma (ambos tipos)
+  const allSoloCarta=[
+    ...R.soloCarta.map(x=>({...x,tipo:"Ítem omitido en carta conciliada"})),
+    ...R.soloPdf.map(x=>({...x,tipo:"Carta entera sin registrar"})),
+  ];
+  if(allSoloCarta.length){
+    const h=["Tipo","Consecutivo","Proveedor","Item","Descripción (carta)","Partida (carta)","Fuente PDF","Origen"];
+    const d=allSoloCarta.map(x=>[x.tipo,x.consec,x.prov,x.item,x.desc,x.frac,x.fuente,x.origen]);
+    const ws=XLSX.utils.aoa_to_sheet([h,...d]); ws["!cols"]=[{wch:30},{wch:14},{wch:28},{wch:12},{wch:60},{wch:18},{wch:26},{wch:10}]; ws["!autofilter"]={ref:`A1:H${d.length+1}`};
+    XLSX.utils.book_append_sheet(wb,ws,"En carta no en plataforma");
+  }
+
+  // Partidas divergentes
+  if(R.partidaDiv.length){
+    const h=["Consecutivo","Proveedor","Item","Descripción","Partida carta","Partida plataforma"];
+    const d=R.partidaDiv.map(x=>[x.consec,x.prov,x.item,x.desc,x.fracCarta,x.fracPlat]);
+    const ws=XLSX.utils.aoa_to_sheet([h,...d]); ws["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:56},{wch:16},{wch:18}]; ws["!autofilter"]={ref:`A1:F${d.length+1}`};
+    XLSX.utils.book_append_sheet(wb,ws,"Partida divergente");
+  }
+
+  XLSX.writeFile(wb,"Hallazgos_Conciliacion.xlsx");
+}
+
 $("pickFiles").addEventListener("click",e=>{ e.stopPropagation(); $("files").click(); });
 $("pickDir").addEventListener("click",e=>{ e.stopPropagation(); $("dir").click(); });
 $("files").addEventListener("change",e=>handleFiles([...e.target.files]));
@@ -607,6 +658,7 @@ $("ocrOn").addEventListener("click",e=>e.stopPropagation());
 drop.addEventListener("click",()=>$("files").click());
 drop.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); $("files").click(); }});
 $("download").addEventListener("click",e=>{ e.stopPropagation(); buildXlsx(); });
+$("downloadRecon").addEventListener("click",e=>{ e.stopPropagation(); buildReconXlsx(); });
 
 $("pickPlat").addEventListener("click",()=>$("platFile").click());
 $("platFile").addEventListener("change",async e=>{
