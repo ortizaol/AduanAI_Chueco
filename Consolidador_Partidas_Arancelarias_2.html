@@ -85,6 +85,7 @@
   .tag{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:2px;white-space:nowrap}
   .tag.t{background:#e6efe9;color:var(--green)} .tag.o{background:#ece4fb;color:var(--purple)}
   .tag.p{background:#fbe7e1;color:var(--red)} .tag.c{background:#e1ecfb;color:#2f5b9e} .tag.d{background:var(--amber-bg);color:var(--amber)}
+  .tag.n{background:#fdeeee;color:#7a1a0a;font-weight:700}
   .note{font-size:12px;color:var(--steel);padding:10px 16px;border-top:1px solid var(--line)}
   .callout{margin-top:16px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:4px;padding:12px 16px;font-size:13px;color:var(--ink2)}
   .callout b{color:var(--ink)}
@@ -396,7 +397,7 @@ function reconcile(){
     if(!platByConsec.has(p.consec)) platByConsec.set(p.consec,{items:new Map(),prov:p.prov});
     platByConsec.get(p.consec).items.set(p.item,p);
   });
-  const soloPlat=[],soloCarta=[],partidaDiv=[],cartasSoloPlat=[],cartasSoloPdf=[];
+  const soloPlat=[],soloCarta=[],soloPdf=[],partidaDiv=[],cartasSoloPlat=[],cartasSoloPdf=[];
   let both=0;
   new Set([...pdfByConsec.keys(),...platByConsec.keys()]).forEach(c=>{
     const inP=pdfByConsec.has(c), inL=platByConsec.has(c);
@@ -413,28 +414,40 @@ function reconcile(){
         }
       });
     } else if(inL){ cartasSoloPlat.push({consec:c,prov:platByConsec.get(c).prov,n:platByConsec.get(c).items.size}); }
-    else { const any=[...pdfByConsec.get(c).values()][0]; cartasSoloPdf.push({consec:c,prov:any?any.empresa:"",n:pdfByConsec.get(c).size}); }
+    else {
+      // Carta en PDF sin ningún registro en plataforma — listar cada ítem
+      const any=[...pdfByConsec.get(c).values()][0];
+      cartasSoloPdf.push({consec:c,prov:any?any.empresa:"",n:pdfByConsec.get(c).size});
+      pdfByConsec.get(c).forEach((r,item)=>{
+        soloPdf.push({consec:c,item,desc:r.desc,frac:r.frac,prov:r.empresa,fuente:r.fuente,origen:r.origen});
+      });
+    }
   });
-  reconResults={soloPlat,soloCarta,partidaDiv,cartasSoloPlat,cartasSoloPdf,both};
+  reconResults={soloPlat,soloCarta,soloPdf,partidaDiv,cartasSoloPlat,cartasSoloPdf,both};
   renderRecon();
 }
 
 function renderRecon(){
   const R=reconResults; if(!R) return;
+  const totalCartaFaltante = R.soloCarta.length + R.soloPdf.length;
   $("rPlat").textContent=R.soloPlat.length;
-  $("rCarta").textContent=R.soloCarta.length;
+  $("rCarta").textContent=totalCartaFaltante;
   $("rDiv").textContent=R.partidaDiv.length;
   $("rBoth").textContent=R.both;
   const cov=[];
-  if(R.cartasSoloPlat.length) cov.push(`${R.cartasSoloPlat.length} carta(s) en plataforma sin PDF cargado (no conciliadas — cárgalas para auditarlas).`);
-  if(R.cartasSoloPdf.length)  cov.push(`${R.cartasSoloPdf.length} carta(s) en PDF sin registro en plataforma.`);
+  if(R.cartasSoloPlat.length) cov.push(`<b>${R.cartasSoloPlat.length}</b> carta(s) en plataforma sin PDF cargado — no conciliadas (cárgalas para auditarlas).`);
+  if(R.cartasSoloPdf.length){
+    const detalle=R.cartasSoloPdf.map(x=>`<b>${esc(x.consec)}</b> (${x.n} ítems)`).join(", ");
+    cov.push(`<b>${R.cartasSoloPdf.length}</b> carta(s) en PDF sin ningún registro en plataforma: ${detalle}. ⚠ Verifica que el export esté actualizado o que los ítems hayan sido activados.`);
+  }
   $("reconCover").innerHTML = cov.length
-    ? `<b>Cobertura:</b> ${cov.join(" ")} Los hallazgos abajo solo cubren las ${R.both} carta(s) presentes en ambas fuentes.`
+    ? `<b>Atención:</b> ${cov.join(" ")} Los hallazgos de conciliación por ítem cubren las ${R.both} carta(s) presentes en ambas fuentes.`
     : `Las ${R.both} carta(s) están en ambas fuentes; conciliación completa.`;
 
   const rows=[];
-  R.soloPlat.forEach(x=>rows.push(["p","En plataforma, no en carta",x.consec,x.prov,x.item,x.desc,x.frac,"Posible falso positivo en plataforma"]));
-  R.soloCarta.forEach(x=>rows.push(["c","En carta, no en plataforma",x.consec,x.prov,x.item,x.desc,x.frac,(x.origen==="OCR"?"(OCR — confirmar ítem) ":"")+"Crear o vincular en plataforma"]));
+  R.soloPlat.forEach(x=>rows.push(["p","En plataforma, no en carta",x.consec,x.prov,x.item,x.desc,x.frac,"Revisar si fue creado por error en plataforma"]));
+  R.soloCarta.forEach(x=>rows.push(["c","En carta, no en plataforma",x.consec,x.prov,x.item,x.desc,x.frac,(x.origen==="OCR"?"(OCR — confirmar ítem) ":"")+"Ítem omitido al activar la carta — crear en plataforma"]));
+  R.soloPdf.forEach(x=>rows.push(["n","Carta no registrada en plataforma",x.consec,x.prov,x.item,x.desc,x.frac,(x.origen==="OCR"?"(OCR) ":"")+"Carta entera sin activar — registrar en plataforma"]));
   R.partidaDiv.forEach(x=>rows.push(["d","Partida divergente",x.consec,x.prov,x.item,x.desc,x.fracCarta,"Plataforma: "+x.fracPlat]));
   const tb=$("reconBody"); tb.innerHTML="";
   const LIM=400;
@@ -537,14 +550,20 @@ function buildXlsx(){
   // Conciliación
   if(reconResults){
     const R=reconResults;
+    const totalSoloCarta=R.soloCarta.length+R.soloPdf.length;
     const con=[["CONCILIACIÓN PLATAFORMA ↔ CARTA"],[],
       ["Cartas conciliadas (en ambas fuentes)",R.both],
-      ["En plataforma, no en carta (falso positivo)",R.soloPlat.length],
-      ["En carta, no en plataforma",R.soloCarta.length],
+      ["En plataforma, no en carta (posible falso positivo)",R.soloPlat.length],
+      ["En carta, no en plataforma — ítem omitido en carta conciliada",R.soloCarta.length],
+      ["En carta, no en plataforma — carta entera sin registrar",R.soloPdf.length],
+      ["Total ítems en carta no en plataforma",totalSoloCarta],
       ["Partidas divergentes",R.partidaDiv.length],
       ["Cartas en plataforma sin PDF cargado",R.cartasSoloPlat.length],
-      ["Cartas en PDF sin registro en plataforma",R.cartasSoloPdf.length]];
-    const cs=XLSX.utils.aoa_to_sheet(con); cs["!cols"]=[{wch:48},{wch:12}];
+      ["Cartas en PDF sin ningún registro en plataforma",R.cartasSoloPdf.length],
+      [],
+      ["Detalle cartas en PDF sin registro","Consecutivo","Ítems"],
+      ...R.cartasSoloPdf.map(x=>["",x.consec,x.n])];
+    const cs=XLSX.utils.aoa_to_sheet(con); cs["!cols"]=[{wch:52},{wch:18},{wch:10}];
     XLSX.utils.book_append_sheet(wb,cs,"Conciliación");
 
     const h1=["Consecutivo","Proveedor","Item","Descripción (plataforma)","Partida (plataforma)"];
@@ -552,9 +571,12 @@ function buildXlsx(){
     const s1=XLSX.utils.aoa_to_sheet([h1,...d1]); s1["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18}]; s1["!autofilter"]={ref:`A1:E${d1.length+1}`};
     XLSX.utils.book_append_sheet(wb,s1,"Solo en plataforma");
 
-    const h2=["Consecutivo","Proveedor","Item","Descripción (carta)","Partida (carta)","Fuente PDF","Origen"];
-    const d2=R.soloCarta.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac,x.fuente,x.origen]);
-    const s2=XLSX.utils.aoa_to_sheet([h2,...d2]); s2["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18},{wch:24},{wch:10}]; s2["!autofilter"]={ref:`A1:G${d2.length+1}`};
+    const h2=["Consecutivo","Proveedor","Item","Descripción (carta)","Partida (carta)","Fuente PDF","Origen","Tipo"];
+    const d2=[
+      ...R.soloCarta.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac,x.fuente,x.origen,"Ítem omitido en carta conciliada"]),
+      ...R.soloPdf.map(x=>[x.consec,x.prov,x.item,x.desc,x.frac,x.fuente,x.origen,"Carta entera sin registrar"]),
+    ];
+    const s2=XLSX.utils.aoa_to_sheet([h2,...d2]); s2["!cols"]=[{wch:14},{wch:28},{wch:12},{wch:60},{wch:18},{wch:24},{wch:10},{wch:30}]; s2["!autofilter"]={ref:`A1:H${d2.length+1}`};
     XLSX.utils.book_append_sheet(wb,s2,"Solo en carta");
 
     if(R.partidaDiv.length){
