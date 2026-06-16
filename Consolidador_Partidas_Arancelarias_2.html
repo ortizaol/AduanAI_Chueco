@@ -223,7 +223,7 @@ function reconstructLines(tc){
   for(const it of tc.items){
     if(!it.str || !it.str.trim()) continue;
     const y=it.transform[5];
-    let b=buckets.find(k=>Math.abs(k.y-y)<=2.2);
+    let b=buckets.find(k=>Math.abs(k.y-y)<=3.5);
     if(!b){ b={y,items:[]}; buckets.push(b); }
     b.items.push(it);
   }
